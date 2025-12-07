@@ -2,3 +2,4 @@ numpy
 pandas
 pandas
 sympy
+nbformat >= 4.2.0
