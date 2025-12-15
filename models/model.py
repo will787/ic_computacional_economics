@@ -9,9 +9,9 @@ import pandas as pd
 # ============================================================
 
 class Params:
-    N_d = 500 # downstream - i
-    N_u = 250 # upstream - j
-    N_z = 100 # bancos
+    N_d = 50 # downstream - i
+    N_u = 25 # upstream - j
+    N_z = 10 # bancos
 
     phi = 1.2
     beta = 0.8
@@ -20,25 +20,25 @@ class Params:
     gamma = 0.5
     alpha = 0.1
     sigma = 0.05
-    theta = 1
+    theta = 3
     w = 1
     M = 5 # parametro relacao D -> U (formacao de crédito comercial e fornecimento de bens) - firmas d buscam firmas u
     N = 5 # parametro relacao D e U -> Bancos (Z) rede formacao de empréstimo bancarios
     Z = 2 #banco por firma
-    e = 0.1
-    p_jt = 0.4
-    r_b = 0.02
+    e = 0.01
+    #p_jt = 0.4
+    #r_b = 0.02
 
 
 # ============================================================
 # FUNÇÕES DE PRODUÇÃO DOWNSTREAM - BENS FINAIS
 # ============================================================
 
-def Yit(A_it, beta, phi):
-    """"
-        Y_it = ϕ * A_it^β
-    """
-    return phi * (A_it ** beta)
+#def Yit(A_it, beta):
+#    """"
+#        Y_it = ϕ * A_it^β
+#    """
+#    return (A_it ** beta)
 
 def uit(size=1):
     """"
@@ -48,22 +48,23 @@ def uit(size=1):
     return np.random.uniform(0, 2, size)
 
 
-def Qit(A_it, gamma, phi, beta):
+def Qit(A_it, gamma):
     """"
-        Q_it = γ * (ϕ * A_it^β)
+        Q_it = γ * (ϕ * A_it^β) antiga funcao
+        Q_it = γ * A_it - bens intermediarios necessarios 
     """
-    return gamma * (phi * (A_it ** beta))
+    return gamma * A_it
 
 def Nit(Y_it, delta_d):
     return delta_d * Y_it
 
-def Leontief(gamma, delta_d, N, Q):
+def Leontief(gamma, delta_d, Nit, Q_supply):
     """"
         Y_it_eff = min(N_it / δ_d, Q_it / γ)
     """
-    if delta_d > 0 and gamma > 0:
-        return np.minimum(N / delta_d, Q / gamma)
-    return 0
+    Y_labor = Nit / delta_d
+    Y_intermediate = Q_supply / gamma
+    return np.minimum(Y_labor, Y_intermediate)
 
 # ============================================================
 # PRODUÇÃO UPSTREAM - BENS INTERMEDIÁRIOS (fornecedores para downstream)
@@ -100,6 +101,12 @@ def Leontief_u(delta_u, gamma, phi, phi_sets, beta, A_it):
         return (N / delta_u)
     return 0
 
+def Q_supply_from_upstream(A_d, upstream_ids, A_u, phi, beta):
+    """
+        Oferta efetiva de bens intermediários para cada firma i
+        depende da saude financeira dos fornecedores
+    """
+    return sum(phi * (A_u[j] ** beta) for j in upstream_ids)
 # ============================================================
 # TAXAS E CRÉDITO
 # ============================================================
@@ -155,6 +162,34 @@ def riz(self, B_down):
     
     return r_iz_list
 
+def rjz(self, B_upstream):
+    
+
+    p = self.params
+    r_jz_list = np.zeros(p.N_u)
+
+    for j in range(p.N_u):
+        banks = self.bank_links_u[j]
+
+        B_j = B_upstream[j]
+        A_j = self.A_u[j]
+
+        if len(banks) == 0 or A_j <= 0:
+            r_jz_list[j] = 0.05
+            continue
+
+        ljt = B_j / A_j  # razão entre empréstimo bancário e patrimônio líquido da firma upstream j.
+
+        r_banks = []
+        for z in banks:
+            A_z = self.A_z[z]
+
+            term_bank = p.sigma * (A_z ** (-p.sigma))
+            term_risk = p.theta * (ljt ** p.theta)
+            r_banks.append(term_bank + term_risk)
+
+        r_jz_list[j] = np.mean(r_banks)
+
 
 def lit(B_i, A_i):
     """
@@ -187,35 +222,111 @@ def pi_it(p_jt_list, Yit_list, riz_list, Bit_list, Qit_list, rj_list):
     return np.array(profits)
 
 
+## testes de novas funcoes
+
+def Y_potential(A_it, beta, phi):
+    """"
+        Y_it_potencial = ϕ * A_it^β
+        Produção potencial antes gargalos
+    """
+    return phi * (A_it ** beta)
+
+def N_demand(Y_pot, delta_d):
+    """"
+        N_it_demand = δ_d * Y_it_potencial
+        Demanda de trabalho para reduçao de Y potencial
+    """
+    return delta_d * Y_pot
+
+def Q_demand(Y_pot, gamma):
+    """"
+        Q_it_demand = γ * Y_it_potencial
+        Demanda de bens intermediarios para reduçao de Y potencial
+    """
+    return gamma * Y_pot
+
+def q_upstream(A_j, phi, beta):
+    """
+        q_jt = ϕ * A_j^β
+        Produçao de bens intermediarios de uma firma upstream j
+    """
+    return phi * (A_j ** beta)
+
+def Q_supply_i(i, supplier_links, A_u, phi, beta):
+    """
+        Soma da produção dos fornecedores de i (downstream)
+    """
+    return sum(
+        q_upstream(A_u[j], phi, beta)
+        for j in supplier_links[i]
+    )
+
+def Leontief_new(Y_pot, N_it, Q_demand_it, Q_supply_it, delta_d, gamma):
+    """
+        Produçao efetiva com gargalos
+    """
+    Y_labor = N_it / delta_d
+    Y_intermediate = Q_supply_it / gamma
+    return np.minimum(Y_labor, Y_intermediate)
+
+
 # ============================================================
 # ECONOMIA
 # ============================================================
 
 class Economy:
 
-    def __init__(self, params, supplier=None, bank_links=None):
+    def __init__(self, params, supplier=None, bank_links=None, bank_links_u=None):
         self.params = params
         self.supplier = supplier
         self.bank_links = bank_links
-        self.upstream_to_downstream = None
+        self.bank_links_u = bank_links_u
 
         self.A_d = np.ones(params.N_d)  # downstream começam com patrimônio líquido igual a 1
         self.A_u = np.ones(params.N_u)  # fornecedores começam com patrimônio líquido igual a 1
         self.A_z = np.ones(params.N_z)  # bancos começam com patrimônio líquido igual a 1
 
 
-        self.history = {"Y": [], "Revenue": [], "A_d": [], "profits_d": []}
+        self.history = {
+            "Y": [],
+            "Revenue": [],
+            "A_d": [],
+            "profits_d": [],
+            "Bad debt": []}
 
     def production_downstream(self):
         p = self.params
         #A_safe = np.maximum(self.A_d, 1e-6)  # evita capital negativo
-        Y = Yit(self.A_d, p.beta, p.phi)
-        Q = Qit(self.A_d, p.gamma, p.phi, p.beta)
-        N = Nit(Y, p.delta_d)
-        Y_eff = Leontief(p.gamma, p.delta_d, N, Q)
-        u = uit(len(Y_eff))
+        Y_pot = Y_potential(self.A_d, p.beta, p.phi)
+        
+        Q_d = Q_demand(self.A_d, p.gamma)
+        N_d = N_demand(Y_pot, p.delta_d)
+
+        Q_s = np.zeros(p.N_d)
+        for i in range(p.N_d):
+            Q_s[i] = Q_supply_i(
+                i,
+                self.supplier,
+                self.A_u,
+                p.phi,
+                p.beta
+            )
+        
+        #producao efetiva (efeito do gargalo)
+        Y_eff = np.array([
+        Leontief_new(
+            Y_pot[i],
+            N_d[i],
+            Q_d[i],
+            Q_s[i],
+            p.delta_d,
+            p.gamma
+        )
+        for i in range(p.N_d)
+    ])
+        u = uit(p.N_d)
         revenue = u * Y_eff
-        return Y, Q, N, Y_eff, u, revenue
+        return Y_pot, Q_d, N_d, Y_eff, u, revenue
 
     def credit_demand(self, Y, N):
         p = self.params
@@ -237,7 +348,7 @@ class Economy:
             Yit_list=Y_eff,
             riz_list= riz(self, B_down),#ajustar a funcao
             Bit_list=B_down,
-            Qit_list=Qit(self.A_d, p.gamma, p.phi, p.beta),
+            Qit_list=Qit(self.A_d, p.gamma),
             rj_list=rj_list
         )
 
@@ -399,7 +510,7 @@ class Economy:
 
             #lucros
             profits = self.profits_downstream(Y_eff, B_down, u_vec)
-
+        
             #atualizacao do patrimonio liquido
             self.update_A(profits)
 
@@ -457,17 +568,23 @@ if __name__ == "__main__":
             upstream_to_downstream[j].append(i)
 
     # Banks -> D-U
-    bank_links = [
+    banks_links_d = [
         choose_preferred_banks(econ.A_z, p.Z)
         for _ in range(p.N_d)
     ]
+
+    banks_links_u = [
+        choose_preferred_banks(econ.A_z, p.Z)
+        for _ in range(p.N_u)
+    ]
+
     econ.supplier = supplier
-    econ.bank_links = bank_links
-    econ.upstream_to_downstream = upstream_to_downstream
+    econ.bank_links = banks_links_d
+    econ.bank_links_u = banks_links_u
     econ.simulate(T=1000)
     
 
-# %% 1 model
+# 1 model
 
 rev_by_period = np.array(econ.history["Y"])
 agg_revenue_t = rev_by_period.sum(axis=1)
@@ -475,11 +592,11 @@ log_rev = np.log10(np.maximum(agg_revenue_t, 1e-12))
 
 fig = go.Figure()
 fig.add_trace(go.Scatter(
-    x=np.arange(len(log_rev)),
+    x=np.arange(len(rev_by_period)),
     y=log_rev,
     mode='lines'
 ))
-fig.update_yaxes(title="log10(Revenue)")
+fig.update_yaxes(title="log(Y)")
 fig.update_xaxes(title="t")
 fig.show()
 
@@ -489,7 +606,7 @@ A_final = np.array(econ.history["A_d"][-1])
 A_final = A_final[A_final > 0]
 
 A_sorted = np.sort(A_final)[::-1]
-ranks = np.arange(1, len(A_sorted) + 1)
+ranks = np.arange(0, len(A_sorted) + 1)
 
 fig = go.Figure()
 fig.add_trace(go.Scatter(
@@ -544,10 +661,3 @@ fig.show()
 print("Downstream degrees:", np.unique(down_deg, return_counts=True))
 print("Upstream degrees:", np.unique(up_deg, return_counts=True))
 print("Upstream degrees:", np.unique(up_deg, return_counts=True))
-
-
-#tentar ver o que esta acontecendo no grafico (C)
-
-
-
-# %%
