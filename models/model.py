@@ -44,6 +44,7 @@ def uit(size=1):
     """"
         uit ~ U(0, 2)
         preço estocastico, exogeno e aleatorio do bem final
+        distribuição uniforme entre 0 e 2
     """
     return np.random.uniform(0, 2, size)
 
