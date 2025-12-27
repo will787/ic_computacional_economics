@@ -891,7 +891,7 @@ fig.add_trace(go.Scatter(
     y=np.log10(rank),
     mode="markers"
 ))
-fig.update_xaxes(title="log(A)")
+fig.update_xaxes(title="log(firm's net worth)")
 fig.update_yaxes(title="log(rank)")
 fig.update_layout(title="(B) - Degree Distribution - Downstream size (in terms PL)")
 fig.show()
@@ -899,21 +899,24 @@ fig.show()
 
 # 3 model
 
-down_deg = econ.history["deg_down"][-1]
-up_deg = econ.history["deg_up"][-1]
+down_deg, up_deg = degree_distribution_new(econ.supplier, econ.params.N_d, econ.params.N_u)
 
-d_sorted = np.sort(down_deg)[::-1]
-rank = np.arange(1, len(d_sorted) + 1)
+active_up_deg = up_deg[up_deg > 0]
+
+up_sorted = np.sort(active_up_deg)[::-1]
+rank = np.arange(1, len(active_up_deg) + 1)
 
 fig = go.Figure()
 fig.add_trace(go.Scatter(
-    x=np.log10(d_sorted[d_sorted > 0]),
-    y=np.log10(rank[:len(d_sorted[d_sorted > 0])]),
+    x=np.log10(up_sorted),
+    y=np.log10(rank),
     mode="markers"
 ))
-fig.update_xaxes(title="log(number of links)")
-fig.update_yaxes(title="log(rank)")
-fig.update_layout(title="(C) - Degree Distribution of Network - Downstream vs Upstream")
+fig.update_layout(
+    title="(c) Distribuição de Grau — Upstream (Clientes por Fornecedor)",
+    xaxis_title="log(Number of links)",
+    yaxis_title="log(rank)"
+)
 fig.show()
 
 
