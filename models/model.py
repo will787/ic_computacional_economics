@@ -141,7 +141,7 @@ def riz(self, B_down):
     r_iz_list = np.zeros(p.N_d)
     
     for i in range(p.N_d):
-        banks = self.bank_links[i]
+        banks = self.bank_links_d[i]
         B_i = B_down[i]
         A_i = self.A_d[i]
 
@@ -290,10 +290,10 @@ def Leontief_new(Y_pot, N_it, Q_demand_it, Q_supply_it, delta_d, gamma):
 
 class Economy:
 
-    def __init__(self, params, supplier=None, bank_links=None, bank_links_u=None):
+    def __init__(self, params, supplier=None, bank_links_d=None, bank_links_u=None):
         self.params = params
         self.supplier = supplier
-        self.bank_links = bank_links
+        self.bank_links_d = bank_links_d
         self.bank_links_u = bank_links_u
 
         self.A_d = np.ones(params.N_d)  # downstream começam com patrimônio líquido igual a 1
@@ -426,7 +426,7 @@ class Economy:
                 for j in suppliers:
                     loss_to_upstream[j] += loss_up * (per_supplier_expo / expo_up)
 
-            banks = self.bank_links[i]
+            banks = self.bank_links_d[i]
             if len(banks) > 0:
                 per_bank_expo = loss_banks / len(banks)
                 for z in banks:
@@ -508,7 +508,7 @@ class Economy:
             )
             self.supplier[i] = chosen
 
-    def update_bank_links(self):
+    def update_bank_links_d(self):
         p = self.params
         new_bank_links = []
 
@@ -522,7 +522,24 @@ class Economy:
                 sample_size=p.Z,
                 eps=p.e
             )
-            self.bank_links[i] = chosen_banks
+            self.bank_links_d[i] = chosen_banks
+
+    def update_bank_links_u(self):
+        p = self.params
+        new_bank_links = []
+
+        for j in range(p.N_u):
+            candidates = np.arange(p.N_z)
+            prices = p.sigma * (self.A_z ** (-p.sigma))
+
+            chosen_banks = Economy.choose_with_noise(
+                candidates=candidates,
+                scores=prices,
+                sample_size=p.Z,
+                eps=p.e
+            )
+
+            self.bank_links_u[j] = chosen_banks
 
 
     def update_financial_positions_and_propagate(self, profits_d, profits_u, B_down, Q_d_effective, p_intermediate_u, r_bank_d_list, B_up, r_bank_u_list):
@@ -552,7 +569,7 @@ class Economy:
             
             # Recupera credores
             u_id = self.supplier[i][0] # Fornecedor
-            bank_ids = self.bank_links[i] # Lista de bancos
+            bank_ids = self.bank_links_d[i] # Lista de bancos
             
             # Dívida com Fornecedor = (1 + r_trade) * Q (valor monetário dos bens)
             debt_u = p_intermediate_u[u_id] * Q_d_effective[i]
@@ -608,7 +625,7 @@ class Economy:
         profits_z = np.zeros(p.N_z)
         
         for i in range(p.N_d):
-            banks = self.bank_links[i]
+            banks = self.bank_links_d[i]
             if len(banks) == 0:
                 continue
 
@@ -669,9 +686,9 @@ class Economy:
                 for z_idx in self.bank_links_u[i]:
                     degrees[z_idx] += 1
 
-        if self.bank_links is not None:
-            for k in range(len(self.bank_links)):
-                for z_idx in self.bank_links[k]:
+        if self.bank_links_d is not None:
+            for k in range(len(self.bank_links_d)):
+                for z_idx in self.bank_links_d[k]:
                     degrees[z_idx] += 1
 
         return degrees
@@ -681,6 +698,13 @@ class Economy:
     def simulate(self, T):
         for t in range(T):
             if t % 100 == 0: print(f"Time period: {t}")
+
+            if t > 0:
+                    self.supplier = supplier
+                    self.bank_links_d = banks_links_d
+                    self.bank_links_u = banks_links_u
+
+
             #producao downstream
             Y_star, Q_d_demand, N, u_vec, revenue = self.production_downstream()
             Y_eff = Y_star.copy()
@@ -690,22 +714,30 @@ class Economy:
                 u_id = self.supplier[i][0]
                 Q_demand_u[u_id] += Q_d_demand[i]
 
-
             #producao potencial de upstream
             Q_potencial_u = q_upstream(self.A_u, self.params.phi, self.params.beta)
             Q_supply_u = np.minimum(Q_potencial_u, Q_demand_u)
-
+            
+            #contagem quantas clientes firmas upstream tem
+            u_clients_counts = np.zeros(self.params.N_u)
             for i in range(self.params.N_d):
-                u_id = self.supplier[i][0]
+                if len(self.supplier[i]) > 0:
+                    u_id = self.supplier[i][0]
+                    u_clients_counts[u_id] += 1
 
-                n_clients = max(1, len(upstream_to_downstream[u_id]))
-                Q_supply_i = Q_supply_u[u_id] / n_clients
+            # racionamento
+            for i in range(self.params.N_d):
+                if len(self.supplier[i]) > 0:
+                    u_id = self.supplier[i][0]
 
-                Y_eff[i] = min(
-                    Y_star[i],
-                    N[i] / self.params.delta_d,
-                    Q_supply_i / self.params.gamma,
-                )
+                    n_clients = max(1, u_clients_counts[u_id])
+                    Q_supply_i = Q_supply_u[u_id] / n_clients
+
+                    Y_eff[i] = min(
+                        Y_star[i],
+                        N[i] / self.params.delta_d,
+                        Q_supply_i / self.params.gamma,
+                    )
 
             B_up, N_up = self.credit_demand_u(Q_supply_u)
             r_bank_u_vector = rjz(self, B_up)
@@ -720,6 +752,8 @@ class Economy:
             for i in range(self.params.N_d):
                 u_id = self.supplier[i][0]
                 r_trade_vector_d[i] = r_trade_vector_u[u_id]
+            
+            p_intermediate_d = 1 + r_trade_vector_d
 
             B_down = self.credit_demand_d(Y_eff, N)
             r_bank_d_vector = riz(self, B_down)
@@ -727,10 +761,10 @@ class Economy:
             Q_d_effective = np.zeros(self.params.N_d)
             for i in range(self.params.N_d):
                 u_id = self.supplier[i][0]
-                n_clients = max(1, len(upstream_to_downstream[u_id]))
+                n_clients = max(1, len(supplier[u_id]))
                 Q_d_effective[i] = Q_supply_u[u_id] / n_clients
 
-            profits_d = self.profits_downstream(Y_eff, B_down, u_vec, Q_d_effective, p_intermediate_u, r_bank_d_vector)
+            profits_d = self.profits_downstream(Y_eff, B_down, u_vec, Q_d_effective, p_intermediate_d, r_bank_d_vector)
             profits_u = self.profits_upstream(Q_supply_u, B_up, p_intermediate_u, r_bank_u_vector)
 
             #atualizacao do patrimonio liquido
@@ -745,11 +779,9 @@ class Economy:
                 r_bank_u_vector
             )
 
-            # atualizacao da rede
-            self.update_supplier_links()
-            self.update_bank_links()
-
+            #como o mercado se organiza
             down_deg, up_deg = degree_distribution_new(self.supplier, self.params.N_d, self.params.N_u)
+            
             #historico
             #A_total = self.A_d.sum() + self.A_u.sum() + self.A_z.sum()
 
@@ -761,6 +793,11 @@ class Economy:
             self.history["deg_down"].append(down_deg)
             self.history["deg_up"].append(up_deg)
             self.history["Bad debt"].append(bad_debt_t)
+
+            # atualizacao da rede
+            self.update_supplier_links()
+            self.update_bank_links_d()
+            self.update_bank_links_u()
 
 # ============================================================
 # REDES
@@ -798,31 +835,27 @@ def choose_preferred_banks(A_z, Z):
 if __name__ == "__main__":
 
     p = Params()
-    econ = Economy(p, supplier = None, bank_links = None, bank_links_u = None)
+    econ = Economy(p, supplier = None, bank_links_d = None, bank_links_u = None)
+
     #1. Downstream -> upstream
     supplier = [
         list(choose_preferred_upstream(econ.A_u, p.M))
         for _ in range(p.N_d)
     ]
 
-    upstream_to_downstream = [[] for _ in range(p.N_u)]
-    for i in range(p.N_d):
-        for j in supplier[i]:
-            upstream_to_downstream[j].append(i)
-
-    # Banks -> D-U
+    # Banks -> Downstream
     banks_links_d = [
         list(choose_preferred_banks(econ.A_z, p.Z))
         for _ in range(p.N_d)
     ]
-
+    
+    # Banks -> Downstream
     banks_links_u = [
         choose_preferred_banks(econ.A_z, p.Z)
         for _ in range(p.N_u)
     ]
-
     econ.supplier = supplier
-    econ.bank_links = banks_links_d
+    econ.bank_links_d = banks_links_d
     econ.bank_links_u = banks_links_u
     econ.simulate(T=1000)
     
@@ -841,16 +874,16 @@ fig.add_trace(go.Scatter(
 ))
 fig.update_yaxes(title="log(Y)")
 fig.update_xaxes(title="t")
+fig.update_layout(title="(A) - Agg production of Downstream firms")
+
 fig.show()
 
 # 2 model
 
-burn = 200
-A_stack = np.concatenate(econ.history["A_d"][burn::])
-
-A_stack = A_stack[A_stack > 0]
-A_sorted = np.sort(A_stack)[::-1]
-rank = np.arange(1, len(A_stack) + 1)
+A_final = np.array(econ.history["A_d"][-1])
+A_final = A_final[A_final > 0]
+A_sorted = np.sort(A_final)[::-1]
+rank = np.arange(1, len(A_final) + 1)
 
 fig = go.Figure()
 fig.add_trace(go.Scatter(
@@ -860,7 +893,7 @@ fig.add_trace(go.Scatter(
 ))
 fig.update_xaxes(title="log(A)")
 fig.update_yaxes(title="log(rank)")
-fig.update_layout(title="Degree Distribution - Downstream (static)")
+fig.update_layout(title="(B) - Degree Distribution - Downstream size (in terms PL)")
 fig.show()
 
 
@@ -880,9 +913,8 @@ fig.add_trace(go.Scatter(
 ))
 fig.update_xaxes(title="log(number of links)")
 fig.update_yaxes(title="log(rank)")
-fig.update_layout(title="Degree Distribution — Downstream (dynamic)")
+fig.update_layout(title="(C) - Degree Distribution of Network - Downstream vs Upstream")
 fig.show()
-
 
 
 # 4 model
@@ -903,7 +935,7 @@ fig.add_trace(go.Scatter(
 
 fig.update_xaxes(title="log(degree) - Number os clients")
 fig.update_yaxes(title="log(rank)")
-fig.update_layout(title="Degree Distribution - Banks (D + U clients)")
+fig.update_layout(title="(D) - Degree Distribution - Banks vs (D + U clients)")
 fig.show()
 
 # 5 model
@@ -919,6 +951,7 @@ fig.add_trace(go.Scatter(
 ))
 fig.update_xaxes(title="t")
 fig.update_yaxes(title="Bad debt")
+fig.update_layout(title="Bad debt with Banks (D + U)")
 fig.show()
 
 
@@ -926,3 +959,4 @@ fig.show()
 print("Downstream degrees:", np.unique(down_deg, return_counts=True))
 print("Upstream degrees:", np.unique(up_deg, return_counts=True))
 print("Upstream degrees:", np.unique(up_deg, return_counts=True))
+# %%
