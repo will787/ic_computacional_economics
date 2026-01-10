@@ -1,4 +1,4 @@
-# %%
+
 import numpy as np
 import matplotlib.pyplot as plt
 import plotly.graph_objects as go
@@ -121,18 +121,6 @@ def rjt(At, alpha): #ok
     if alpha > 0:
         return alpha * At ** (-alpha)
     return 0
-
-def calculate_loan_rate(A_bank, leverage_borrower, sigma, theta):
-    """
-    Taxa de juros bancária geral [cite: 177]
-    r = sigma * A_z^(-sigma) + theta * (leverage)^theta
-    """
-    A_z_safe = np.maximum(A_bank, 1e-6)
-    l_safe = np.maximum(leverage_borrower, 0) # Leverage não pode ser negativa
-    
-    term_bank = sigma * (A_z_safe ** (-sigma))
-    term_risk = theta * (l_safe ** theta)
-    return term_bank + term_risk
 
 def Bxt(w_vector, A_vector):
 
@@ -324,139 +312,22 @@ class Economy:
             "deg_up": []
         }
 
-    def step_production(self):
+    def production_downstream(self):
         p = self.params
-        #A_safe = np.maximum(self.A_d, 1e-6)  # evita capital negativo
-        A_d_safe = np.maximum(self.A_d, 1e-6)
-        Y_d = p.phi * (A_d_safe ** p.beta)
+        A_safe = np.maximum(self.A_d, 1e-6)  # evita capital negativo
+        Y_star = p.phi * A_safe ** p.beta
+        N_demand = p.delta_d * Y_star
+        Q_demand = p.gamma * Y_star
+        u = uit(size=p.N_d)
 
-        N_d_demand = p.delta_d * Y_d
-        Q_d_demand = p.gamma * Y_d
-
-        u_prices = np.random.uniform(0, 2, p.N_d)
-        revenue_d = u_prices * Y_d
-
-        Q_u_production = np.zeros(p.N_u)
-
-        for i in range(p.N_d):
-            u_id = self.supplier[i][0]
-            Q_u_production[u_id] += Q_d_demand[i]
-        
-        N_u_demand = p.delta_u * Q_u_production
-        
-        return Y_d, Q_d_demand, N_d_demand, revenue_d, Q_u_production, N_u_demand
+        revenue = u * Y_star
+        return Y_star, Q_demand, N_demand, u, revenue
     
     def credit_demand_d(self, Y, N):
         p = self.params
         w_vector = p.w * np.array(N)
         return Bxt(w_vector, self.A_d)
     
-    def step_credit_prices_and_rates(self, N_d_demand, N_u_demand):
-        """
-            Calcula preços (U) e taxas de juros (bancos) com base na saúde financeira
-            e na demanda de crédito gerada pela produção
-
-            Ref: Eq. 3 (Pág 9) Eq 6 (Pág 12) do artigo
-        """
-
-        p = self.params
-
-        A_u_safe = np.maximum(self.A_u, 1e-6)
-
-        # demanda de crédito comercial
-        r_trade_u = p.alpha * (A_u_safe ** (-p.alpha))
-        p_intermediate_vec = 1 + r_trade_u
-
-        # GAP FINANCEIRO
-
-        #downstream
-        wage_bill_d = p.w * N_d_demand 
-        B_d = np.maximum(wage_bill_d - self.A_d, 0)
-
-        #upstream
-        wage_bill_u = p.w * N_u_demand
-        B_u = np.maximum(wage_bill_u - self.A_u, 0)
-
-        #crédito bancario - calculo das taxas
-        # Eq.6 = sigma * A_zt^(-sigma) + theta * l_it^(theta)
-
-        r_bank_d = np.zeros(p.N_d)
-        r_bank_u = np.zeros(p.N_u)
-
-        #taxas para D
-        for i in range(p.N_d):
-            
-            z_idx = self.bank_links_d[i]
-            A_z_curr = self.A_z[z_idx[0]]
-
-            #calculo de alavancagem
-            #l = B / A
-            A_d_curr = max(self.A_d[i], 1e-6)
-            levarage_i = B_d[i] / A_d_curr
-
-            base_rate = p.sigma * max(A_z_curr, 1e-6) ** (-p.sigma)
-            risk_premium = p.theta * (levarage_i ** p.theta)
-
-            r_bank_d[i] = base_rate + risk_premium
-
-        # taxas para U
-
-        for j in range(p.N_u):
-            z_idx = self.bank_links_u[j]
-            A_z_curr = self.A_z[z_idx[0]]
-
-            #calculo de alavancagem
-            #l = B / A
-            A_u_curr = max(self.A_u[j], 1e-6)
-            levarage_j = B_u[j] / A_u_curr
-
-            base_rate = p.sigma * max(A_z_curr, 1e-6) ** (-p.sigma)
-            risk_premium = p.theta * (levarage_j ** p.theta)
-
-            r_bank_u[j] = base_rate + risk_premium
-        
-        return p_intermediate_vec, B_d, r_bank_d, B_u, r_bank_u, wage_bill_d, wage_bill_u
-                            
-    
-    def step_profits_and_dynamics(self, Y_d, revenue_d, Q_d_demand, price_intermediate, B_d, r_bank_d, B_u,
-                                  r_bank_u, Q_u_production, wage_bill_d, wage_bill_u):
-        
-        p = self.params
-
-        costs_financial = (1 + r_bank_d) * B_d
-
-        cost_trade_d = np.zeros(p.N_d)
-        for i in range(p.N_d):
-            u_idx = self.supplier[i][0]
-            cost_trade_d[i] = price_intermediate[u_idx] * Q_d_demand[i]
-
-        profits_d = revenue_d - wage_bill_d - (r_bank_d * B_d) - cost_trade_d
-
-        A_d_pre_default = np.zeros(p.N_d)
-        for i in range(p.N_d):
-            equity_remanescente = max(self.A_d[i] - wage_bill_d[i], 0)
-
-            trade_cost = cost_trade_d[i]
-            bank_cost = (1 + r_bank_d[i]) * B_d[i]
-
-            A_d_pre_default[i] = revenue_d[i] + equity_remanescente - bank_cost - trade_cost
-
-        
-        revenue_u = np.zeros(p.N_u)
-        for i in range(p.N_u):
-            #receita de vendas para downstream
-            u_idx = self.supplier[i]
-            revenue_u[u_idx] = cost_trade_d[i]
-
-        A_u_pre_default = np.zeros(p.N_u)
-        for j in range(p.N_u):
-            equity_remanescente = max(self.A_u[j] - wage_bill_u[j], 0)
-            bank_cost = (1 + r_bank_u[j]) * B_u[j]
-            A_u_pre_default[j] = revenue_u[j] + equity_remanescente - bank_cost
-
-        return A_d_pre_default, A_u_pre_default, cost_trade_d
-
-
     def credit_demand_u(self, Q_supply_list):
         """
             Cálculo da demanda de crédito bancário das firmas upstream
@@ -486,20 +357,13 @@ class Economy:
             Fonte: Equação na página 15 do artigo (Seção 2).
         """
         p = self.params
-        profits = np.zeros(p.N_d)
-
-        for i in range(p.N_d):
-            u_id = self.supplier[i][0]
-
-
-            revenue = u_vec[i] * Y_eff[i]
-            cost_bank = (1 + r_bank_d[i]) * B_down[i]
-            cost_trade = p_intermediate_u[self.supplier[i][0]] * Q_d_effective[i]
-
-            profits[i] = revenue - cost_bank - cost_trade
-
+        revenue = u_vec * Y_eff
+        cost_bank = (1 + r_bank_d) * B_down
+        cost_intermediate = (1 + p_intermediate_u) * Q_d_effective
+        profits = revenue - cost_bank - cost_intermediate
         return profits
-    
+
+
     def profits_upstream(self, Q_supply, B_up, p_intermediate_u, r_bank_u):
         """
             π_jt = (1 + r_trade_charges) * Q_jt - (1 + r_bank_charges) * B_jt
@@ -583,81 +447,6 @@ class Economy:
         if len(bankrupt_z) > 0:
             self.A_z[bankrupt_z] = np.random.uniform(0.5, 1.5, len(bankrupt_z)) 
 
-
-    def propagate_bad_debtt(self, A_d_new, A_u_new, B_d, costs_trade_d, B_u):
-        p = self.params
-        
-        total_bad_debt = 0.0
-        
-        # --- Check Default D ---
-        defaults_d = np.where(A_d_new < 0)[0]
-        
-        # Vetores de perda para U e Z
-        loss_to_u = np.zeros(p.N_u)
-        loss_to_z = np.zeros(p.N_z)
-        
-        for i in defaults_d:
-            bad_debt_val = abs(A_d_new[i]) # O "buraco" no patrimônio
-            total_bad_debt += bad_debt_val
-            
-            # Quem leva o calote? Fornecedor U e Banco Z
-            u_idx = self.supplier[i]
-            z_idx = self.bank_links_d[i]
-            
-            # Proporção da dívida
-            debt_u = costs_trade_d[i]
-            debt_z = B_d[i] # Simplificando: o calote é no principal+juros, mas usamos exposição nominal
-            
-            total_liabilities = debt_u + debt_z
-            
-            if total_liabilities > 0:
-                share_u = debt_u / total_liabilities
-                share_z = debt_z / total_liabilities
-                
-                loss_to_u[u_idx] += bad_debt_val * share_u
-                loss_to_z[z_idx] += bad_debt_val * share_z
-        
-        # --- Atualiza A_u com as perdas de D ---
-        A_u_final = A_u_new - loss_to_u
-        
-        # --- Check Default U ---
-        defaults_u = np.where(A_u_final < 0)[0]
-        
-        for j in defaults_u:
-            bad_debt_val = abs(A_u_final[j])
-            total_bad_debt += bad_debt_val
-            
-            # U deve apenas para bancos
-            z_idx = self.bank_links_u[j]
-            loss_to_z[z_idx] += bad_debt_val
-            
-        # --- Atualiza Bancos ---
-        # Lucro dos bancos = Juros de quem pagou - Bad Debt de quem quebrou
-        # (Simplificação: apenas subtrai bad debt do patrimônio acumulado dos bancos)
-        # O banco acumula os juros (lucro) na variação do A_z, mas aqui focamos no choque
-        # Vamos assumir que os juros ganhos já entraram no A_z implicitamente? 
-        # Melhor: A_z += (Juros Ganhos) - Loss.
-        # Cálculo rápido de Juros Ganhos (aprox):
-        # Para ser exato, precisaríamos somar juros de todos os não-falidos. 
-        # Dado a complexidade, vamos focar no impacto negativo no A_z.
-        self.A_z -= loss_to_z
-        
-        # --- Substituição de Agentes (Re-entry) [cite: 250, 251] ---
-        # Firms falidas saem e entram novas com A ~ U(0.8, 1.2)
-        # D firms
-        self.A_d = A_d_new
-        self.A_d[defaults_d] = np.random.uniform(0.8, 1.2, len(defaults_d))
-        
-        # U firms
-        self.A_u = A_u_final
-        self.A_u[defaults_u] = np.random.uniform(0.8, 1.2, len(defaults_u))
-        
-        # Bancos (se quebrarem)
-        defaults_z = np.where(self.A_z < 0)[0]
-        self.A_z[defaults_z] = np.random.uniform(0.8, 1.2, len(defaults_z))
-        
-        return total_bad_debt
-
     def update_A(self, profits):
         new_A = self.A_d + profits
 
@@ -697,99 +486,53 @@ class Economy:
 
     def update_supplier_links(self):
         p = self.params
-
-        current_price_u = 1 + rjt(self.A_u, p.alpha)
+        new_supplier = []
 
         for i in range(p.N_d):
-            # regra do ruido
-            if np.random.rand() < p.e:
-                # escolha aleatória
-                self.supplier[i] = [np.random.randint(0, p.N_u)]
+            current = self.supplier[i][0]
+            candidates = np.arange(p.N_u)
+            prices = pjt(self.A_u, p.alpha)
 
-            else:
-                current_u_idx = self.supplier[i][0]
-                current_price = current_price_u[current_u_idx]
-
-                candidates = np.random.choice(p.N_u, size=p.M, replace=False)
-                candidates_prices = current_price_u[candidates]
-
-                min_candidate_idx = np.argmin(candidates_prices)
-                best_candidate_price = candidates_prices[min_candidate_idx]
-                best_candidate_id = candidates[min_candidate_idx]
-
-                if best_candidate_price < current_price:
-                    self.supplier[i] = [best_candidate_id]
-                else:
-                    self.supplier[i] = [current_u_idx]
-               
-
+            chosen = Economy.choose_with_noise(
+                candidates=candidates,
+                scores=prices,
+                sample_size=p.M,
+                eps=p.e
+            )
+            self.supplier[i] = chosen
 
     def update_bank_links_d(self):
         p = self.params
-
-        Az_safe = np.maximum(self.A_z, 1e-6)
-        bank_base_rates = p.sigma * (Az_safe ** (-p.sigma))
+        new_bank_links = []
 
         for i in range(p.N_d):
-            # regra do ruido
-            if np.random.rand() < p.e:
-                # escolha aleatória
-                self.bank_links_d[i] = [np.random.randint(0, p.N_z)]
+            candidates = np.arange(p.N_z)
+            prices = p.sigma * (self.A_z ** (-p.sigma))
 
-            else:
-
-                if len(self.bank_links_d[i]) > 0:
-                    current_bank_idx = self.bank_links_d[i][0]
-                else:
-                    current_bank_idx = np.random.randint(0, p.N_z)
-
-                current_rate = bank_base_rates[current_bank_idx]
-
-                candidates = np.random.choice(np.arange(p.N_z), size=p.N, replace=False)
-                candidates_rates = bank_base_rates[candidates]
-
-                min_idx = np.argmin(candidates_rates)
-                best_candidate_rate = candidates_rates[min_idx]
-                best_candidate_id = candidates[min_idx]
-
-                if best_candidate_rate < current_rate:
-                    self.bank_links_d[i] = [best_candidate_id]
-                else:
-                    self.bank_links_d[i] = [current_bank_idx]
-
+            chosen_banks = Economy.choose_with_noise(
+                candidates=candidates,
+                scores=prices,
+                sample_size=p.Z,
+                eps=p.e
+            )
+            self.bank_links_d[i] = chosen_banks
 
     def update_bank_links_u(self):
         p = self.params
-        
-        Az_safe = np.maximum(self.A_z, 1e-6)
-        bank_base_rates = p.sigma * (Az_safe ** (-p.sigma))
+        new_bank_links = []
 
         for j in range(p.N_u):
-            # regra do ruido
-            if np.random.rand() < p.e:
-                # escolha aleatória
-                self.bank_links_u[j] = [np.random.randint(0, p.N_z)]
+            candidates = np.arange(p.N_z)
+            prices = p.sigma * (self.A_z ** (-p.sigma))
 
-            else:
+            chosen_banks = Economy.choose_with_noise(
+                candidates=candidates,
+                scores=prices,
+                sample_size=p.Z,
+                eps=p.e
+            )
 
-                if len(self.bank_links_u[j]) > 0:
-                    current_bank_idx = self.bank_links_u[j][0]
-                else:
-                    current_bank_idx = np.random.randint(0, p.N_z)
-
-                current_rate = bank_base_rates[current_bank_idx]
-
-                candidates = np.random.choice(np.arange(p.N_z), size=p.N, replace=False)
-                candidates_rates = bank_base_rates[candidates]
-
-                min_idx = np.argmin(candidates_rates)
-                best_candidate_rate = candidates_rates[min_idx]
-                best_candidate_id = candidates[min_idx]
-
-                if best_candidate_rate < current_rate:
-                    self.bank_links_u[j] = [best_candidate_id]
-                else:
-                    self.bank_links_u[j] = [current_bank_idx]
+            self.bank_links_u[j] = chosen_banks
 
 
     def update_financial_positions_and_propagate(self, profits_d, profits_u, B_down, Q_d_effective, p_intermediate_u, r_bank_d_list, B_up, r_bank_u_list):
@@ -946,49 +689,106 @@ class Economy:
     
 
     def simulate(self, T):
-        for t in range(1, T + 1):
-            if t % 100 == 0: 
-                print(f"Time period: {t}")
+        for t in range(T):
+            if t % 100 == 0: print(f"Time period: {t}")
 
-            #producao downstream
-            Y_d, Q_d_demand, N_d_demand, revenue_d, Q_u_production, N_u_demand = self.step_production()
+            # 1. Produção Downstream (Planejamento)
+            Y_star, Q_demand, N, u_vec, revenue = self.production_downstream()
+            Y_eff = Y_star.copy()
 
-            p_inter, B_d, r_b_d, B_u, r_b_u, wb_d, wb_u = self.step_credit_prices_and_rates(
-                N_d_demand=N_d_demand, 
-                N_u_demand=N_u_demand
-            )
+            # 2. Agregar Demanda para Upstream
+            Q_demand_u = np.zeros(self.params.N_u)
+            u_clients_counts = np.zeros(self.params.N_u) # Contar quantos clientes cada U tem
 
-            A_d_new, A_u_new, cost_trade_d = self.step_profits_and_dynamics(
-                Y_d=Y_d,
-                revenue_d=revenue_d,
-                Q_d_demand=Q_d_demand,
-                price_intermediate=p_inter,
-                B_d=B_d,
-                r_bank_d=r_b_d,
-                B_u=B_u,
-                r_bank_u=r_b_u,
-                Q_u_production=Q_u_production,
-                wage_bill_d=wb_d,
-                wage_bill_u=wb_u
-            )
+            for i in range(self.params.N_d):
+                if len(self.supplier[i]) > 0:
+                    u_id = self.supplier[i][0]
+                    Q_demand_u[u_id] += Q_demand[i]
+                    u_clients_counts[u_id] += 1
 
-            bd = self.propagate_bad_debtt(A_d_new, A_u_new, B_d, cost_trade_d, B_u)
+            # 3. Produção Upstream (Restrita por A_u)
+            A_u_safe = np.maximum(self.A_u, 1e-6)
+            Q_potential_u = self.params.phi * (A_u_safe ** self.params.beta)
+            Q_supply_u = np.minimum(Q_potential_u, Q_demand_u) # O quanto U consegue entregar
+
+            # 4. Racionamento (Se U não produz tudo, D recebe menos)
+            Q_d_effective = np.zeros(self.params.N_d)
             
-            #como o mercado se organiza
+            for i in range(self.params.N_d):
+                if len(self.supplier[i]) > 0:
+                    u_id = self.supplier[i][0]
+                    
+                    # Racionamento igualitário (Fair Rationing)
+                    n_clients = max(1, u_clients_counts[u_id])
+                    amount_received = Q_supply_u[u_id] / n_clients
+                    Q_d_effective[i] = amount_received
+
+                    # Recalcula Y efetivo baseado no gargalo de insumos
+                    Y_eff[i] = min(
+                        Y_star[i],
+                        amount_received / self.params.gamma
+                    )
+                else:
+                    Q_d_effective[i] = 0
+                    Y_eff[i] = 0
+
+            # 5. Mercado de Crédito e Taxas
+            B_up, N_up = self.credit_demand_u(Q_supply_u)
+            r_bank_u_vector = rjz(self, B_up)
+
+            # Preços Upstream (Trade Credit)
+            r_trade_vector_u = np.zeros(self.params.N_u)
+            for j in range(self.params.N_u):
+                r_trade_vector_u[j] = rjt(self.A_u[j], self.params.alpha)
+
+            p_intermediate_u = 1 + r_trade_vector_u
+
+            # Mapear preços para D
+            p_intermediate_d = np.zeros(self.params.N_d)
+            for i in range(self.params.N_d):
+                if len(self.supplier[i]) > 0:
+                    u_id = self.supplier[i][0]
+                    p_intermediate_d[i] = p_intermediate_u[u_id]
+            
+            # Crédito Downstream
+            B_down = self.credit_demand_d(Y_eff, N)
+            
+            r_bank_d_vector = riz(self, B_down)
+
+            # 6. Lucros
+            # Passamos p_intermediate_d corrigido
+            profits_d = self.profits_downstream(Y_eff, B_down, u_vec, Q_d_effective, p_intermediate_d, r_bank_d_vector)
+            profits_u = self.profits_upstream(Q_supply_u, B_up, p_intermediate_u, r_bank_u_vector)
+
+            # 7. Atualização Patrimonial e Propagação (Waterfall)
+            if t == 0:
+                self.A_d += profits_d
+                self.A_u += profits_u
+                bad_debt_t = 0.0
+            else:
+                bad_debt_t = self.update_financial_positions_and_propagate(
+                    profits_d,
+                    profits_u,
+                    B_down,
+                    Q_d_effective,
+                    p_intermediate_u, # A propagação precisa saber o preço original de U para calcular a dívida total
+                    r_bank_d_vector,
+                    B_up,
+                    r_bank_u_vector
+                )
+
+            # 8. Histórico e Redes
             down_deg, up_deg = degree_distribution_new(self.supplier, self.params.N_d, self.params.N_u)
             
-            #historico
-            #A_total = self.A_d.sum() + self.A_u.sum() + self.A_z.sum()
-            self.history["Y"].append(Y_d.copy())
-            self.history["Revenue"].append(revenue_d.copy())
+            self.history["Y"].append(Y_eff.copy())
+            self.history["Revenue"].append(revenue.copy())
             self.history["A_d"].append(self.A_d.copy())
             self.history["A_u"].append(self.A_u.copy())
-            #self.history["profits_d"].append(profits_d)
+            self.history["profits_d"].append(profits_d)
             self.history["deg_down"].append(down_deg)
             self.history["deg_up"].append(up_deg)
-            self.history["Bad debt"].append(bd)
+            self.history["Bad debt"].append(bad_debt_t)
 
-            # atualizacao da rede
             self.update_supplier_links()
             self.update_bank_links_d()
             self.update_bank_links_u()
@@ -1029,76 +829,46 @@ def choose_preferred_banks(A_z, Z):
 if __name__ == "__main__":
 
     p = Params()
+    econ = Economy(p, supplier = None, bank_links_d = None, bank_links_u = None)
 
     #1. Downstream -> upstream
     supplier = [
-        [np.random.randint(0, p.N_u)]
+        list(choose_preferred_upstream(econ.A_u, p.M))
         for _ in range(p.N_d)
     ]
 
     # Banks -> Downstream
     banks_links_d = [
-        [np.random.randint(0, p.N_z)]
+        list(choose_preferred_banks(econ.A_z, p.Z))
         for _ in range(p.N_d)
     ]
     
     # Banks -> Downstream
     banks_links_u = [
-        [np.random.randint(0, p.N_z)]
+        choose_preferred_banks(econ.A_z, p.Z)
         for _ in range(p.N_u)
     ]
-    econ = Economy(p, supplier = supplier, bank_links_d = banks_links_d, bank_links_u = banks_links_u)
+    econ.supplier = supplier
+    econ.bank_links_d = banks_links_d
+    econ.bank_links_u = banks_links_u
     econ.simulate(T=1000)
-
-    def run_monte_carlo(n_simulations=10, T=1000):
-        print(f"--- Iniciando Monte Carlo ({n_simulations} simulações de T={T}) ---")
-        
-        all_Y = np.zeros((n_simulations, T))
-        all_Bad_Debt = np.zeros((n_simulations, T))
-
-        for sim in range(n_simulations):
-            if (sim + 1) % 1 == 0: 
-                print(f"Executando simulação {sim + 1}/{n_simulations}...")
-            
-            p = Params()
-            
-            # 2. Inicialização Aleatória (Fundamental para Monte Carlo)
-            supplier = [[np.random.randint(0, p.N_u)] for _ in range(p.N_d)]
-            banks_links_d = [[np.random.randint(0, p.N_z)] for _ in range(p.N_d)]
-            banks_links_u = [[np.random.randint(0, p.N_z)] for _ in range(p.N_u)]
-
-            # 3. Instancia e Roda
-            econ = Economy(p, supplier=supplier, bank_links_d=banks_links_d, bank_links_u=banks_links_u)
-            econ.simulate(T=T)
-            
-            # 4. Extração e Tratamento de Dados
-            # Y: O history guarda um vetor de N_d firmas por tempo. Precisamos somar (Agregado).
-            y_history = np.array(econ.history["Y"]) 
-            # Soma axis=1 para ter o Y total da economia naquele tempo
-            agg_y_t = y_history.sum(axis=1)
-            
-            bad_debt_history = np.array(econ.history["Bad debt"])
-            
-            # 5. Armazenamento (Garantindo que o tamanho bata com T)
-            # Cortamos [:T] caso a simulação tenha gerado um passo extra ou ajuste de índice
-            limit = min(T, len(agg_y_t))
-            all_Y[sim, :limit] = agg_y_t[:limit]
-            
-            limit_bd = min(T, len(bad_debt_history))
-            all_Bad_Debt[sim, :limit_bd] = bad_debt_history[:limit_bd]
-
-        return all_Y, all_Bad_Debt
+    
 
 # 1 model
 
+burn = 0
 rev_by_period = np.array(econ.history["Y"])
 agg_revenue_t = rev_by_period.sum(axis=1) #soma por periodo das firmas
+
 log_rev = np.log10(np.maximum(agg_revenue_t, 1e-12))
+logg_rev = log_rev[burn:]
+
+x = np.arange(len(logg_rev))
 
 fig = go.Figure()
 fig.add_trace(go.Scatter(
-    x=np.arange(len(rev_by_period[rev_by_period > 0])),
-    y=log_rev,
+    x=x,
+    y=logg_rev,
     mode='lines'
 ))
 fig.update_yaxes(title="log(Y)")
@@ -1109,17 +879,23 @@ fig.show()
 
 # 2 model
 
-A_final = np.array(econ.history["A_d"][-1])
+burn = 0
+#A_final = np.array(econ.history["A_d"][-1])
+A_final = np.array(econ.history["A_d"][burn::])
 A_final = A_final[A_final > 0]
-if len(A_final) > 0:
-        A_sorted = np.sort(A_final)[::-1]
-        rank = np.arange(1, len(A_final) + 1)
+A_sorted = np.sort(A_final)[::-1]
+rank = np.arange(1, len(A_final) + 1)
 
-        fig2 = go.Figure()
-        fig2.add_trace(go.Scatter(x=np.log10(A_sorted), y=np.log10(rank), mode="markers"))
-        fig2.update_layout(title="(B) Distribuição de Tamanho das Firmas", 
-                           xaxis_title="log(Patrimônio Líquido)", yaxis_title="log(Rank)")
-        fig2.show()
+fig = go.Figure()
+fig.add_trace(go.Scatter(
+    x=np.log10(A_sorted),
+    y=np.log10(rank),
+    mode="markers"
+))
+fig.update_xaxes(title="log(firm's net worth)")
+fig.update_yaxes(title="log(rank)")
+fig.update_layout(title="(B) - Degree Distribution - Downstream size (in terms PL)")
+fig.show()
 
 
 # 3 model
@@ -1168,7 +944,8 @@ fig.show()
 
 # 5 model
 
-bad_debt_series = np.array(econ.history["Bad debt"])
+burn = 0
+bad_debt_series = np.array(econ.history["Bad debt"][burn::])
 time_steps = np.arange(len(bad_debt_series))
 
 fig = go.Figure()
@@ -1182,49 +959,58 @@ fig.update_yaxes(title="Bad debt")
 fig.update_layout(title="Bad debt with Banks (D + U)")
 fig.show()
 
-results_Y, results_BD = run_monte_carlo(n_simulations=100, T=1000)
+# 6 model
 
-# 2. Calcular a Média e Desvio Padrão dos Universos
-# axis=0 significa "média entre as simulações para cada tempo t"
-mean_Y = np.mean(results_Y, axis=0)
-std_Y = np.std(results_Y, axis=0)
+burn = 0
+bd_series = np.array(econ.history["Bad debt"][burn::])
 
-# ==========================================
-# PLOTAGEM (SPAGHETTI PLOT)
-# ==========================================
-import plotly.graph_objects as go
+
+median_bd = np.median(bd_series)
+std_bd = np.std(bd_series)
+
+bd_prime = np.abs(bd_series - median_bd)
+
+x_values = np.linspace(0,10, 1000)
+probs = []
+
+for x_val in x_values:
+    threshold = x_val * std_bd
+
+    count_extreme = np.sum(bd_prime > threshold)
+    
+    probability = count_extreme / len(bd_prime)
+
+    if probability > 0:
+        probs.append(probability)
+    else:
+        probs.append(None)
 
 fig = go.Figure()
-
-# Plotar as linhas individuais (finas e transparentes)
-t_index = np.arange(1, 1001)
-
-# Vamos plotar apenas as 10 primeiras para não pesar o gráfico
-for k in range(min(10, len(results_Y))):
-    fig.add_trace(go.Scatter(
-        x=t_index, 
-        y=np.log10(np.maximum(results_Y[k, :], 1e-12)),
-        mode='lines',
-        line=dict(width=1, color='rgba(0,0,255,0.2)'), # Azul transparente
-        showlegend=False
-    ))
-
-# Plotar a MÉDIA (Grossa e sólida)
 fig.add_trace(go.Scatter(
-    x=t_index,
-    y=np.log10(np.maximum(mean_Y, 1e-12)),
-    mode='lines',
-    name='Médiana (Monte Carlo)',
-    line=dict(width=4, color='red')
+    x=x_values,
+    y=probs,
+    mode="markers",
+    name='Simulação'
 ))
 
 fig.update_layout(
-    title=f"Monte Carlo: Produção Agregada (100 simulações)",
-    xaxis_title="Tempo (t)",
-    yaxis_title="log(Y)"
+        title="Figura 4: Agregado de má dívida - Probabilidade de eventos extremos",
+        xaxis_title="x (multiplicador do desvio padrão)",
+        yaxis_title="log(Prob)",
+        yaxis_type="log"
+)
+fig.update_yaxes(
+    type="log",                 # Escala Logarítmica
+    exponentformat="power",     # Força o formato 10^x
+    dtick=1,                    # Força um tick a cada potência (10^-1, 10^-2...)
+    showexponent="all"          # Garante que todos mostrem o expoente
 )
 
+fig.update_yaxes(range=[-3.5, 0.1]) 
+
 fig.show()
+
+
 # %%
 print("Downstream degrees:", np.unique(down_deg, return_counts=True))
 print("Upstream degrees:", np.unique(up_deg, return_counts=True))
