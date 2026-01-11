@@ -1097,7 +1097,7 @@ log_rev = np.log10(np.maximum(agg_revenue_t, 1e-12))
 
 fig = go.Figure()
 fig.add_trace(go.Scatter(
-    x=np.arange(len(rev_by_period[rev_by_period > 0])),
+    x=np.arange(len(rev_by_period[rev_by_period > 0]) + 1),
     y=log_rev,
     mode='lines'
 ))
@@ -1169,7 +1169,7 @@ fig.show()
 # 5 model
 
 bad_debt_series = np.array(econ.history["Bad debt"])
-time_steps = np.arange(len(bad_debt_series))
+time_steps = np.arange(len(bad_debt_series)) + 1
 
 fig = go.Figure()
 fig.add_trace(go.Scatter(
@@ -1182,24 +1182,15 @@ fig.update_yaxes(title="Bad debt")
 fig.update_layout(title="Bad debt with Banks (D + U)")
 fig.show()
 
-results_Y, results_BD = run_monte_carlo(n_simulations=100, T=1000)
+# model simulation - monte carlo
+results_Y, results_BD = run_monte_carlo(n_simulations=10, T=1000)
 
-# 2. Calcular a Média e Desvio Padrão dos Universos
-# axis=0 significa "média entre as simulações para cada tempo t"
 mean_Y = np.mean(results_Y, axis=0)
 std_Y = np.std(results_Y, axis=0)
 
-# ==========================================
-# PLOTAGEM (SPAGHETTI PLOT)
-# ==========================================
-import plotly.graph_objects as go
-
+# simulacao producao agg log
 fig = go.Figure()
-
-# Plotar as linhas individuais (finas e transparentes)
 t_index = np.arange(1, 1001)
-
-# Vamos plotar apenas as 10 primeiras para não pesar o gráfico
 for k in range(min(10, len(results_Y))):
     fig.add_trace(go.Scatter(
         x=t_index, 
@@ -1209,22 +1200,64 @@ for k in range(min(10, len(results_Y))):
         showlegend=False
     ))
 
-# Plotar a MÉDIA (Grossa e sólida)
 fig.add_trace(go.Scatter(
     x=t_index,
     y=np.log10(np.maximum(mean_Y, 1e-12)),
     mode='lines',
-    name='Médiana (Monte Carlo)',
+    name='Média (Monte Carlo)',
     line=dict(width=4, color='red')
 ))
 
 fig.update_layout(
     title=f"Monte Carlo: Produção Agregada (100 simulações)",
     xaxis_title="Tempo (t)",
-    yaxis_title="log(Y)"
+    yaxis_title="Bad debt (Valor Monetário)"
+)
+fig.show()
+
+
+# ============================================================
+# FIGURA 4: Probabilidade de Eventos Extremos (Avalanches)
+# ============================================================
+
+if 'results_BD' in locals():
+    # "Achatamos" a matriz para um único vetor longo (pool de dados)
+    bd_data = results_BD.flatten() 
+else:
+    bd_data = np.array(econ.history["Bad debt"])
+
+median_bd = np.median(results_BD)
+bd_prime = np.abs(bd_data - median_bd)
+sigma_bd = np.std(bd_data)
+
+x_values = np.linspace(0, 10, 100) 
+prob_y = []
+
+for x in x_values:
+    threshold = x * sigma_bd
+    count_extremes = np.sum(bd_prime > threshold)
+    probability = count_extremes / len(bd_prime)
+    prob_y.append(probability)
+
+fig4 = go.Figure()
+
+fig4.add_trace(go.Scatter(
+    x=x_values,
+    y=prob_y,
+    mode='markers',
+    marker=dict(size=5, color='blue'),
+    name='Prob(BD\' > xσ)'
+))
+
+fig4.update_layout(
+    title="Figura 4: Agregado de má dívida - Probabilidade de Eventos Extremos",
+    xaxis_title="x (Múltiplos do Desvio Padrão)",
+    yaxis_title="log(Probabilidade)",
+    yaxis_type="log"
 )
 
-fig.show()
+fig4.show()
+
 # %%
 print("Downstream degrees:", np.unique(down_deg, return_counts=True))
 print("Upstream degrees:", np.unique(up_deg, return_counts=True))
