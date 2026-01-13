@@ -340,7 +340,12 @@ class Economy:
     
     def step_profits_and_dynamics(self, Y_d, revenue_d, Q_d_demand, price_intermediate, B_d, r_bank_d, B_u,
                                   r_bank_u, Q_u_production, wage_bill_d, wage_bill_u):
-        
+        """"
+            revenue_u = cust_trade_d (receita recebida por vendas da downstream para upstream)
+            pi_jt = cost_trade - bank_cost
+        """
+
+
         p = self.params
 
         costs_financial = (1 + r_bank_d) * B_d
@@ -348,7 +353,7 @@ class Economy:
         cost_trade_d = np.zeros(p.N_d)
         for i in range(p.N_d):
             u_idx = self.supplier[i][0]
-            cost_trade_d[i] = price_intermediate[u_idx] * Q_d_demand[i]
+            cost_trade_d[i] = price_intermediate[u_idx] * Q_d_demand[i] # (1 + rjt) * Qjt
 
         profits_d = revenue_d - wage_bill_d - (r_bank_d * B_d) - cost_trade_d
 
@@ -356,8 +361,8 @@ class Economy:
         for i in range(p.N_d):
             equity_remanescente = max(self.A_d[i] - wage_bill_d[i], 0)
 
-            trade_cost = cost_trade_d[i]
-            bank_cost = (1 + r_bank_d[i]) * B_d[i]
+            trade_cost = cost_trade_d[i] #custo com upstream
+            bank_cost = (1 + r_bank_d[i]) * B_d[i] #custo com banco
 
             A_d_pre_default[i] = revenue_d[i] + equity_remanescente - bank_cost - trade_cost
 
@@ -371,7 +376,7 @@ class Economy:
         A_u_pre_default = np.zeros(p.N_u)
         for j in range(p.N_u):
             equity_remanescente = max(self.A_u[j] - wage_bill_u[j], 0)
-            bank_cost = (1 + r_bank_u[j]) * B_u[j]
+            bank_cost = (1 + r_bank_u[j]) * B_u[j] # ( 1 + rjzt) * B_jt
             A_u_pre_default[j] = revenue_u[j] + equity_remanescente - bank_cost
 
         return A_d_pre_default, A_u_pre_default, cost_trade_d
@@ -423,16 +428,7 @@ class Economy:
             # U deve apenas para bancos
             z_idx = self.bank_links_u[j]
             loss_to_z[z_idx] += bad_debt_val
-            
-        # --- Atualiza Bancos ---
-        # Lucro dos bancos = Juros de quem pagou - Bad Debt de quem quebrou
-        # (Simplificação: apenas subtrai bad debt do patrimônio acumulado dos bancos)
-        # O banco acumula os juros (lucro) na variação do A_z, mas aqui focamos no choque
-        # Vamos assumir que os juros ganhos já entraram no A_z implicitamente? 
-        # Melhor: A_z += (Juros Ganhos) - Loss.
-        # Cálculo rápido de Juros Ganhos (aprox):
-        # Para ser exato, precisaríamos somar juros de todos os não-falidos. 
-        # Dado a complexidade, vamos focar no impacto negativo no A_z.
+
         self.A_z -= loss_to_z
         
         # --- Substituição de Agentes (Re-entry) [cite: 250, 251] ---
