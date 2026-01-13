@@ -91,8 +91,8 @@ def Qjt(params, A_d, upstream_to_downstream):
     Q_u = np.zeros(params.N_u)
     for j in range(params.N_u):
         S_j = upstream_to_downstream[j]
-        soma = sum((A_d[i]**params.beta) for i in S_j)
-        Q_u[j] = params.gamma * params.phi * soma
+        soma = sum(Yit(A_d[i], params.beta, params.phi) for i in S_j)
+        Q_u[j] = params.gamma * soma
     return Q_u
 
 def Njt(delta_u, gamma, phi, phi_sets, beta, A_it):
@@ -132,18 +132,21 @@ def rjt(At, alpha): #ok
     """
     return alpha * (At ** (-alpha))
 
+def rxt(A_bank, leverage_borrower, sigma, theta):
+    """"
+        Pág 12 -Taxa de juros bancária geral
+        r = sigma * A_z^(-sigma) + theta * (leverage)^theta
 
-def calculate_loan_rate(A_bank, leverage_borrower, sigma, theta):
-    """
-    Taxa de juros bancária geral [cite: 177]
-    r = sigma * A_z^(-sigma) + theta * (leverage)^theta
+        A_zt = patrimônio líquido do banco z no tempo t
+        lxt = índice de alavancagem da firma tomadora do empréstimo bancário
+        sigma e theta = parâmetros positivos
     """
     A_z_safe = np.maximum(A_bank, 1e-6)
-    l_safe = np.maximum(leverage_borrower, 0) # Leverage não pode ser negativa
-    
-    term_bank = sigma * (A_z_safe ** (-sigma))
-    term_risk = theta * (l_safe ** theta)
-    return term_bank + term_risk
+    l_safe = np.maximum(leverage_borrower, 0) 
+
+    base_rate = sigma * max(A_z_safe, 1e-6) ** (-sigma)
+    risk_premium = theta * (leverage_borrower ** theta)
+    return base_rate + risk_premium
 
 def Bxt(wage_bill_u, A_vector):
     """"
@@ -176,7 +179,7 @@ def riz(self, B_down):
             r_iz_list[i] = 0
             continue
 
-        l_it = lit(B_i,  A_i)
+        l_it = lxt(B_i,  A_i)
 
         r_banks = []
         for z in banks: 
@@ -190,55 +193,15 @@ def riz(self, B_down):
     
     return r_iz_list
 
-def rjz(self, B_upstream):
-    """
-        calcula a taxa de juros que os bancos cobram das firmas Upstream
-        r_zt = sigma * A_zt^(-sigma) + theta * l_jt^(theta)
-    """
-    
-    p = self.params
-    r_jz_list = np.zeros(p.N_u)
-
-    for j in range(p.N_u):
-        banks = self.bank_links_u[j]
-        B_j = B_upstream[j]
-        A_j = self.A_u[j]
-
-        if len(banks) == 0:
-            r_jz_list[j] = 0.0
-            continue
-        if B_j == 0:
-            r_jz_list[j] = 0.0
-            continue
-
-        net_worth = A_j if A_j > 1e-6 else 1e-6
-
-        ljt = B_j / net_worth  #alavancagem da firma U (eq. 9 do artigo)
-
-        r_banks = []
-        for z in banks:
-            A_z = self.A_z[z]
-
-            bank_net_worth = A_z if A_z > 1e-6 else 1e-6
-
-            term_bank = p.sigma * (bank_net_worth ** (-p.sigma))
-            term_risk = p.theta * (ljt ** p.theta)
-
-            r_banks.append(term_bank + term_risk)
-
-        r_jz_list[j] = np.mean(r_banks)
-
-    return r_jz_list
-
-
-def lit(B_i, A_i):
+def lxt(B_t, A_t):
     """
         Equação pag. 13 - indice de alavancagem
         l_it = B_it / A_it
         Define a razão entre o empréstimo bancário e o patrimônio líquido da firma downstream i.
+        Define a razão entre o empréstimo bancário e o patrimônio líquido da firma upstream j.
         indice de alavancagem: relação entre crédito demanda (Bit) e patrimônio líquido (Ait).
     """
-    return B_i / A_i if A_i > 1e-6 else 0
+    return B_t / A_t if A_t > 1e-6 else 0
 # ============================================================
 # PREÇOS
 # ============================================================
@@ -322,7 +285,7 @@ class Economy:
             Calcula preços (U) e taxas de juros (bancos) com base na saúde financeira
             e na demanda de crédito gerada pela produção
 
-            Ref: Eq. 3 (Pág 9) Eq 6 (Pág 12) do artigo
+            Equação pag. 13 - Lxt, Rxt, Btz
         """
 
         p = self.params
@@ -342,9 +305,8 @@ class Economy:
         #upstream
         wage_bill_u = p.w * N_u_demand
         B_u = Bxt(wage_bill_u, self.A_u)
+        
         #crédito bancário - calculo das taxas
-        # Eq.6 = sigma * A_zt^(-sigma) + theta * l_it^(theta)
-
         r_bank_d = np.zeros(p.N_d)
         r_bank_u = np.zeros(p.N_u)
 
@@ -357,15 +319,11 @@ class Economy:
             #calculo de alavancagem
             #l = B / A
             A_d_curr = max(self.A_d[i], 1e-6)
-            leverage_i = lit(B_d[i], A_d_curr)
+            leverage_i = lxt(B_d[i], A_d_curr)
 
-            base_rate = p.sigma * max(A_z_curr, 1e-6) ** (-p.sigma)
-            risk_premium = p.theta * (leverage_i ** p.theta)
-
-            r_bank_d[i] = base_rate + risk_premium
-
+            r_bank_d[i] = rxt(A_z_curr, leverage_i, p.sigma, p.theta)
+        
         # taxas para U
-
         for j in range(p.N_u):
             z_idx = self.bank_links_u[j]
             A_z_curr = self.A_z[z_idx[0]]
@@ -373,12 +331,9 @@ class Economy:
             #calculo de alavancagem
             #l = B / A
             A_u_curr = max(self.A_u[j], 1e-6)
-            levarage_j = B_u[j] / A_u_curr
+            leverage_j = lxt(B_u[j], A_u_curr)
 
-            base_rate = p.sigma * max(A_z_curr, 1e-6) ** (-p.sigma)
-            risk_premium = p.theta * (levarage_j ** p.theta)
-
-            r_bank_u[j] = base_rate + risk_premium
+            r_bank_u[j] = rxt(A_z_curr, leverage_j, p.sigma, p.theta)
         
         return p_intermediate_vec, B_d, r_bank_d, B_u, r_bank_u, wage_bill_d, wage_bill_u
                             
@@ -421,74 +376,8 @@ class Economy:
 
         return A_d_pre_default, A_u_pre_default, cost_trade_d
 
-    def propagate_bad_debt(self, profits, B_down, Q):
-        p = self.params
-        new_A = self.A_d + profits
 
-        #identificação do bad debt por defaulting
-        default_idx = np.where(new_A < 0)[0]
-        BD_per_down = np.zeros(p.N_d)
-        BD_per_down[default_idx] = -new_A[default_idx]
-
-
-        #alocacao bd para credores proporcional a exposicao
-        loss_to_upstream = np.zeros(p.N_d)
-        loss_to_banks = np.zeros(p.N_z)
-
-        for i in default_idx:
-            bd = BD_per_down[i]
-
-            #exposicoes
-            expo_banks = B_down[i]
-            expo_up = Q[i]
-
-            total_expo = expo_banks + expo_up
-            if total_expo <= 0:
-                continue
-            
-            #fracionamento para escoamentos sobre fornecedores e bancos
-            frac_up = expo_up / total_expo
-            frac_banks = expo_banks / total_expo
-
-            loss_up = bd * frac_up
-            loss_banks = bd * frac_banks
-
-            suppliers = self.supplier[i]
-            if len(suppliers) > 0:
-                per_supplier_expo = expo_up / len(suppliers)
-                for j in suppliers:
-                    loss_to_upstream[j] += loss_up * (per_supplier_expo / expo_up)
-
-            banks = self.bank_links_d[i]
-            if len(banks) > 0:
-                per_bank_expo = loss_banks / len(banks)
-                for z in banks:
-                    loss_to_banks[z] += per_bank_expo
-
-
-        #perdas nos credores
-        #reduz patriminoio das upstream e bancos
-
-        self.A_u = self.A_u - loss_to_upstream
-        self.A_z = self.A_z - loss_to_banks
-
-        self.A_d = new_A - BD_per_down
-
-        # substituicao de agentes por novos entrantes
-        bankrupt_d = np.where(self.A_d <= 0)[0]
-        if len(bankrupt_d) > 0:
-            self.A_d[bankrupt_d] = np.random.uniform(0.5, 1.5, len(bankrupt_d))
-
-        bankrupt_u = np.where(self.A_u <= 0)[0]
-        if len(bankrupt_u) > 0:
-            self.A_u[bankrupt_u] = np.random.uniform(0.5, 1.5, len(bankrupt_u))
-
-        bankrupt_z = np.where(self.A_z <= 0)[0]
-        if len(bankrupt_z) > 0:
-            self.A_z[bankrupt_z] = np.random.uniform(0.5, 1.5, len(bankrupt_z)) 
-
-
-    def propagate_bad_debtt(self, A_d_new, A_u_new, B_d, costs_trade_d, B_u):
+    def propagate_bad_debt(self, A_d_new, A_u_new, B_d, costs_trade_d, B_u):
         p = self.params
         
         total_bad_debt = 0.0
@@ -501,7 +390,7 @@ class Economy:
         loss_to_z = np.zeros(p.N_z)
         
         for i in defaults_d:
-            bad_debt_val = abs(A_d_new[i]) # O "buraco" no patrimônio
+            bad_debt_val = abs(A_d_new[i])
             total_bad_debt += bad_debt_val
             
             # Quem leva o calote? Fornecedor U e Banco Z
@@ -708,7 +597,7 @@ class Economy:
                 wage_bill_u=wb_u
             )
 
-            bd = self.propagate_bad_debtt(A_d_new, A_u_new, B_d, cost_trade_d, B_u)
+            bd = self.propagate_bad_debt(A_d_new, A_u_new, B_d, cost_trade_d, B_u)
             
             #como o mercado se organiza
             down_deg, up_deg = degree_distribution_new(self.supplier, self.params.N_d, self.params.N_u)
@@ -949,7 +838,7 @@ fig.add_trace(go.Scatter(
 fig.update_layout(
     title=f"Monte Carlo: Produção Agregada (100 simulações)",
     xaxis_title="Tempo (t)",
-    yaxis_title="Bad debt (Valor Monetário)"
+    yaxis_title="Log (Y)"
 )
 fig.show()
 
