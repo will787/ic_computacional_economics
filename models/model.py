@@ -1097,7 +1097,7 @@ def plot_network_organic(econ, num_sample_d=30, k_spacing=2.5, iterations=100):
 
     add_edge_trace(edges_u_d, '#888', 'solid', 'Trade (U-D)')
     add_edge_trace(edges_z_d, 'purple', 'dot', 'Bank (Z-D)')
-    add_edge_trace(edges_z_u, '#FF4500', 'dot', 'Bank (Z-U)')
+    add_edge_trace(edges_z_u, '#FF4500', 'dash', 'Bank (Z-U)')
 
     def add_node_trace(indices, prefix, color, symbol, name):
         node_x = []
