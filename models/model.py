@@ -220,14 +220,25 @@ def pjt(At, Alpha):
 # LUCROS
 # ============================================================
 
-def pi_it(p_jt_list, Yit_list, riz_list, Bit_list, Qit_list, rj_list):
+def pi_jt(p_jt_list, Qjt_list,  rjzt_list, Bjt_list, Qit_list, rj_list):
     profits = []
-    for p_jt, Y_it, r_izt, Bi, Qi, r_jt in zip(
-        p_jt_list, Yit_list, riz_list, Bit_list, Qit_list, rj_list
+    for p_jt, Qjt, rjzt, Bjt, Qi, r_jt in zip(
+        p_jt_list, Qjt_list, rjzt_list, Bjt_list, Qit_list, rj_list
     ):
-        profit = p_jt * Y_it - (1 + r_izt) * Bi - (1 + r_jt) * Qi
+        profit = p_jt * Qjt - (1 + rjzt_list) * Bjt - (1 + rj_list) * Qi
         profits.append(profit)
     return np.array(profits)
+
+
+def pi_jt(rjt, Qjt, rjzt):
+    profit = (1 + rjt) * Qjt - (1 + rjzt) * Qjt
+    return profit
+
+def pi_zt(rizt, bit, rjzt, bjt):
+    profit = (1 + rizt) * bit - (1 + rjzt) * bjt
+    return profit
+
+
 
 # ============================================================
 # ECONOMIA
@@ -336,48 +347,127 @@ class Economy:
             r_bank_u[j] = rxt(A_z_curr, leverage_j, p.sigma, p.theta)
         
         return p_intermediate_vec, B_d, r_bank_d, B_u, r_bank_u, wage_bill_d, wage_bill_u
-                            
-    
-    def step_profits_and_dynamics(self, Y_d, revenue_d, Q_d_demand, price_intermediate, B_d, r_bank_d, B_u,
-                                  r_bank_u, Q_u_production, wage_bill_d, wage_bill_u):
+
+    def calculate_profits(self, revenue_d, wage_bill_d, wage_bill_u, B_d, r_bank_d, B_u, r_bank_u, Q_d_demand, price_intermediate):
+        """"
+            Calcula os lucros das firmas downstream, upstream e dos bancos
+            Equação pag. 16 - lucro  (pi_jt, pi_it, pi_zt)
+        """
+        p = self.params
+
+        bank_interest_d = r_bank_d * B_d  #juros
+        bank_repayment_d = (1 + r_bank_d) * B_d #principal + juros
+
+        cost_trade_d = np.zeros(p.N_d)
+        for i in range(p.N_d):
+            u_idx = self.supplier[i][0]
+            cost_trade_d[i] = price_intermediate[u_idx] * Q_d_demand[i]
+
+        profits_d = revenue_d - wage_bill_d - bank_interest_d - cost_trade_d
+
+        A_d_pre_default = np.zeros(p.N_d)
+        for i in range(p.N_d):
+            equity_remanescente = max(self.A_d[i] - wage_bill_d[i], 0)
+            A_d_pre_default[i] = revenue_d[i] + equity_remanescente - bank_repayment_d[i] - cost_trade_d[i]
+
+
+        revenue_u = np.zeros(p.N_u)
+        for i in range(p.N_d):
+            u_idx = self.supplier[i][0]
+            revenue_u[u_idx] += cost_trade_d[i] #U recebe pagamento de D
+
+        A_u_pre_default = np.zeros(p.N_u)
+        bank_interest_u = r_bank_u * B_u #juros
+
+        for j in range(p.N_u):
+            equity_remanescente = max(self.A_u[j] - wage_bill_u[j], 0) #pagamento de custos
+            bank_repayment_u = (1 + r_bank_u[j]) * B_u[j] # ( 1 + rjzt) * B_jt
+            A_u_pre_default[j] = revenue_u[j] + equity_remanescente - bank_repayment_u
+
+        profits_z = np.zeros(p.N_z)
+
+        #juros de D ->Z
+        for i in range(p.N_d):
+            if len(self.bank_links_d[i]) > 0:
+                z_idx = self.bank_links_d[i]
+                profits_z[z_idx] += bank_interest_d[i]
+
+        #juros de U ->Z
+        for j in range(p.N_u):
+            if len(self.bank_links_u[j]) > 0:
+                z_idx = self.bank_links_u[j]
+                profits_z[z_idx] += bank_interest_u[j]
+        
+        self.A_z += profits_z
+
+        return A_u_pre_default, A_d_pre_default, profits_z, cost_trade_d     
+
+
+    def update_net_worth_pre_default(self, profits_d, profits_u, profits_z):   
+        """"
+            Atualiza o patrimônio líquido antes da propagação do calote
+            A_{t+1} = A_t + Pi_t
+        """
+        A_d_new = self.A_d + profits_d
+        A_u_new = self.A_u + profits_u
+        self.A_z += profits_z
+
+        return A_d_new, A_u_new
+
+    def step_profits_and_dynamics(self, Y_d, revenue_d, Q_d_demand, price_intermediate, B_d, 
+                                  r_bank_d, B_u, r_bank_u, Q_u_production, wage_bill_d, wage_bill_u):
         """"
             revenue_u = cust_trade_d (receita recebida por vendas da downstream para upstream)
             pi_jt = cost_trade - bank_cost
         """
 
-
         p = self.params
 
-        costs_financial = (1 + r_bank_d) * B_d
+        bank_interest_d = r_bank_d * B_d  #juros
+        bank_repayment_d = (1 + r_bank_d) * B_d #principal + juros
 
+        #pagamento por bens intermediarios Ddownstream -> Upstream
         cost_trade_d = np.zeros(p.N_d)
         for i in range(p.N_d):
             u_idx = self.supplier[i][0]
-            cost_trade_d[i] = price_intermediate[u_idx] * Q_d_demand[i] # (1 + rjt) * Qjt
+            cost_trade_d[i] = price_intermediate[u_idx] * Q_d_demand[i]
 
         profits_d = revenue_d - wage_bill_d - (r_bank_d * B_d) - cost_trade_d
 
+        # receita e atualizacao Downstream
         A_d_pre_default = np.zeros(p.N_d)
         for i in range(p.N_d):
             equity_remanescente = max(self.A_d[i] - wage_bill_d[i], 0)
+            A_d_pre_default[i] = revenue_d[i] + equity_remanescente - bank_repayment_d[i] - cost_trade_d[i]
 
-            trade_cost = cost_trade_d[i] #custo com upstream
-            bank_cost = (1 + r_bank_d[i]) * B_d[i] #custo com banco
-
-            A_d_pre_default[i] = revenue_d[i] + equity_remanescente - bank_cost - trade_cost
-
-        
         revenue_u = np.zeros(p.N_u)
         for i in range(p.N_u):
-            #receita de vendas para downstream
-            u_idx = self.supplier[i]
-            revenue_u[u_idx] = cost_trade_d[i]
+            #recebimentos de D
+            u_idx = self.supplier[i][0]
+            revenue_u[u_idx] = cost_trade_d[i] #U recebe pagamento de D
 
         A_u_pre_default = np.zeros(p.N_u)
+        bank_interest_u = r_bank_u * B_u #juros
+
+        # receita e atualizacao Upstream
         for j in range(p.N_u):
-            equity_remanescente = max(self.A_u[j] - wage_bill_u[j], 0)
-            bank_cost = (1 + r_bank_u[j]) * B_u[j] # ( 1 + rjzt) * B_jt
-            A_u_pre_default[j] = revenue_u[j] + equity_remanescente - bank_cost
+            equity_remanescente = max(self.A_u[j] - wage_bill_u[j], 0) #pagamento de custos
+            bank_repayment_u = (1 + r_bank_u[j]) * B_u[j] # ( 1 + rjzt) * B_jt
+            A_u_pre_default[j] = revenue_u[j] + equity_remanescente - bank_repayment_u
+
+        # lucros banco - juros recebidos de D e U
+        profits_z = np.zeros(p.N_z)
+        for i in range(p.N_d):
+            if len(self.bank_links_d[i]) > 0:
+                z_idx = self.bank_links_d[i][0]
+                profits_z[z_idx] += r_bank_d[i] * B_d[i]
+
+        for j in range(p.N_u):
+            if len(self.bank_links_u[j]) > 0:
+                z_idx = self.bank_links_u[j][0]
+                profits_z[z_idx] += r_bank_u[j] * B_u[j]
+        
+        self.A_z += profits_z
 
         return A_d_pre_default, A_u_pre_default, cost_trade_d
 
@@ -387,7 +477,7 @@ class Economy:
         
         total_bad_debt = 0.0
         
-        # --- Check Default D ---
+        # --- Check Default D --- Falencia das firmas downstream
         defaults_d = np.where(A_d_new < 0)[0]
         
         # Vetores de perda para U e Z
@@ -578,20 +668,20 @@ class Economy:
                 N_u_demand=N_u_demand
             )
 
-            #passo de lucros e dinamica de patrimonio liquido - como a rede evolui
             A_d_new, A_u_new, cost_trade_d = self.step_profits_and_dynamics(
                 Y_d=Y_d,
                 revenue_d=revenue_d,
-                Q_d_demand=Q_d_demand,
-                price_intermediate=p_inter,
+                wage_bill_d=wb_d,
+                wage_bill_u=wb_u,
                 B_d=B_d,
                 r_bank_d=r_b_d,
                 B_u=B_u,
                 r_bank_u=r_b_u,
                 Q_u_production=Q_u_production,
-                wage_bill_d=wb_d,
-                wage_bill_u=wb_u
+                Q_d_demand=Q_d_demand,
+                price_intermediate=p_inter
             )
+
 
             bd = self.propagate_bad_debt(A_d_new, A_u_new, B_d, cost_trade_d, B_u)
             
@@ -714,11 +804,12 @@ if __name__ == "__main__":
 
 rev_by_period = np.array(econ.history["Y"])
 agg_revenue_t = rev_by_period.sum(axis=1) #soma por periodo das firmas
+time_steps = np.arange(len(agg_revenue_t)) + 1
 log_rev = np.log10(np.maximum(agg_revenue_t, 1e-12))
 
 fig = go.Figure()
 fig.add_trace(go.Scatter(
-    x=np.arange(len(rev_by_period[rev_by_period > 0]) + 1),
+    x=time_steps,
     y=log_rev,
     mode='lines'
 ))
@@ -842,7 +933,6 @@ fig.show()
 # ============================================================
 # FIGURA 4: Probabilidade de Eventos Extremos (Avalanches)
 # ============================================================
-
 
 bd_data = np.array(econ.history["Bad debt"])
 
