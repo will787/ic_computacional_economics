@@ -403,22 +403,16 @@ class Economy:
         return A_u_pre_default, A_d_pre_default, profits_z, cost_trade_d     
 
 
-    def update_net_worth_pre_default(self, profits_d, profits_u, profits_z):   
-        """"
-            Atualiza o patrimônio líquido antes da propagação do calote
-            A_{t+1} = A_t + Pi_t
-        """
-        A_d_new = self.A_d + profits_d
-        A_u_new = self.A_u + profits_u
-        self.A_z += profits_z
-
-        return A_d_new, A_u_new
-
     def step_profits_and_dynamics(self, Y_d, revenue_d, Q_d_demand, price_intermediate, B_d, 
                                   r_bank_d, B_u, r_bank_u, Q_u_production, wage_bill_d, wage_bill_u):
         """"
-            revenue_u = cust_trade_d (receita recebida por vendas da downstream para upstream)
-            pi_jt = cost_trade - bank_cost
+            Cálculo dos lucros e atualização do patrimônio líquido antes da propagação do calote
+            Equação pag. 16 - lucro  (pi_jt, pi_it, pi_zt)
+
+            pi_it = uit * Yit - (1 + rizt) * Bit - (1 + rjzt) * Qit
+            pi_jt = (1 + rjt) * Qjt - (1 + rjzt) * Bjt 
+            pi_zt = Σ_{i ∈ I_z} [1 + rizt] * Bit - Σ_{j ∈ J_z} [1 + rjzt] * Bjt
+            
         """
 
         p = self.params
@@ -444,7 +438,7 @@ class Economy:
         for i in range(p.N_u):
             #recebimentos de D
             u_idx = self.supplier[i][0]
-            revenue_u[u_idx] = cost_trade_d[i] #U recebe pagamento de D
+            revenue_u[u_idx] += cost_trade_d[i] #U recebe pagamento de D (1 para muitos)
 
         A_u_pre_default = np.zeros(p.N_u)
         bank_interest_u = r_bank_u * B_u #juros
@@ -717,25 +711,6 @@ def degree_distribution_new(supplier, N_d, M):
 
     return down_deg, up_deg
 
-def bank_degree(A_vector):
-    return np.ones(len(A_vector))  # cada firma liga ao banco uma vez
-
-def choose_preferred_upstream(A_u, M):
-    """"
-        Escolhe os upstream fornecedores upstream com maior patrimônio líquido A_u.
-    """
-    weights = A_u / np.sum(A_u)
-    preferred_indice = np.random.choice(len(A_u), size=M, replace=False, p=weights)
-    return preferred_indice
-
-def choose_preferred_banks(A_z, Z):
-    """"
-        Escolhe Z bancos com probabilidade proporcional ao patrimonio liquido A_z
-    """
-    weights = A_z / np.sum(A_z)
-    preferred_indice = np.random.choice(len(A_z), size=Z, replace=False, p=weights)
-    return preferred_indice
-
 
 if __name__ == "__main__":
 
@@ -802,20 +777,33 @@ if __name__ == "__main__":
 
 # 1 model
 
+log_axis_config = dict(
+    type='log',
+    dtick=1,                # Um tick por potência de 10
+    exponentformat='power', # Formato 10^k
+    showexponent='all'      # Mostra o expoente sempre
+)
+
+
 rev_by_period = np.array(econ.history["Y"])
 agg_revenue_t = rev_by_period.sum(axis=1) #soma por periodo das firmas
 time_steps = np.arange(len(agg_revenue_t)) + 1
-log_rev = np.log10(np.maximum(agg_revenue_t, 1e-12))
+data_plot = np.maximum(agg_revenue_t, 1e-12)
 
 fig = go.Figure()
 fig.add_trace(go.Scatter(
     x=time_steps,
-    y=log_rev,
+    y=data_plot,
     mode='lines'
 ))
-fig.update_yaxes(title="log(Y)")
-fig.update_xaxes(title="t")
-fig.update_layout(title="(A) - Agg production of Downstream firms")
+
+fig.update_layout(
+    title="(A) - Produção Agregada (Escala Log)",
+    xaxis_title="Tempo (t)",
+    yaxis_title="Produção Agregada (Y)",
+    yaxis=log_axis_config,
+    template="plotly_white"
+    )
 
 fig.show()
 
@@ -828,11 +816,15 @@ if len(A_final) > 0:
         rank = np.arange(1, len(A_final) + 1)
 
         fig2 = go.Figure()
-        fig2.add_trace(go.Scatter(x=np.log10(A_sorted), y=np.log10(rank), mode="markers"))
+        fig2.add_trace(go.Scatter(x=A_sorted, y=rank, mode="markers"))
         fig2.update_layout(
-            title="(B) Distribuição de Tamanho das Firmas", 
-            xaxis_title="log(Patrimônio Líquido)",
-            yaxis_title="log(Rank)")
+            title="(B) Distribuição de Tamanho das Firmas (Log-Log)", 
+            xaxis_title="Patrimônio Líquido (A)",
+            yaxis_title="Rank",
+            xaxis=log_axis_config, # Log no X
+            yaxis=log_axis_config, # Log no Y
+            template="plotly_white"
+        )
         fig2.show()
 
 
@@ -845,20 +837,21 @@ active_up_deg = up_deg[up_deg > 0]
 up_sorted = np.sort(active_up_deg)[::-1]
 rank = np.arange(1, len(active_up_deg) + 1)
 
-fig = go.Figure()
-fig.add_trace(go.Scatter(
-    x=np.log10(up_sorted),
-    y=np.log10(rank),
+fig3 = go.Figure()
+fig3.add_trace(go.Scatter(
+    x=up_sorted,
+    y=rank,
     mode="markers"
 ))
-fig.update_layout(
+fig3.update_layout(
     title="(c) Distribuição de Grau — Upstream (Clientes por Fornecedor)",
     xaxis_title="log(Number of links)",
-    yaxis_title="log(rank)"
+    yaxis_title="log(rank)",
+    xaxis=log_axis_config,
+    yaxis=log_axis_config,
+    template="plotly_white"
 )
-fig.show()
-
-
+fig3.show()
 # 4 model
 bank_deg = econ.get_bank_degrees()
 print(bank_deg)
@@ -869,19 +862,32 @@ rank = np.arange(1, len(deg_sorted) + 1)
 
 fig = go.Figure()
 fig.add_trace(go.Scatter(
-    x=np.log10(deg_sorted),
-    y=np.log10(rank),
+    x=deg_sorted,
+    y=rank,
     mode="markers",
     name="Bancos"
 )) 
 
-fig.update_xaxes(title="log(degree) - Number os clients")
-fig.update_yaxes(title="log(rank)")
-fig.update_layout(title="(D) - Grau de Distribuição - Banks vs (D + U clients)")
+
+fig.update_layout(
+    title="(D) - Grau de Distribuição - Banks vs (D + U clients)",
+    xaxis_title="log(Number of links)",
+    yaxis_title="log(rank)",
+    xaxis=log_axis_config,
+    yaxis=log_axis_config,
+    template="plotly_white"
+)
 fig.show()
 
 # 5 model
 
+# segundo visao, uma alternativa para bad debt (normalizado pela producao)
+Y_history = np.array(econ.history["Y"]).sum(axis=1)
+bd_series = np.array(econ.history["Bad debt"])
+normalized_bd = bd_series / np.maximum(Y_history, 1e-6)
+time_steps = np.arange(len(normalized_bd)) + 1
+
+# primeirao visao - seguindo o artigo
 bad_debt_series = np.array(econ.history["Bad debt"])
 time_steps = np.arange(len(bad_debt_series)) + 1
 
@@ -891,9 +897,13 @@ fig.add_trace(go.Scatter(
     y=bad_debt_series,
     mode="lines"
 ))
-fig.update_xaxes(title="t")
-fig.update_yaxes(title="Bad debt")
-fig.update_layout(title="Bad debt with Banks (D + U)")
+
+fig.update_layout(
+    title="Bad debt with Banks (D + U)",
+    xaxis_title="Tempo (t)",
+    yaxis_title="Bad debt",
+    template="plotly_white"
+    )
 fig.show()
 
 # model simulation - monte carlo
@@ -925,7 +935,9 @@ fig.add_trace(go.Scatter(
 fig.update_layout(
     title=f"Monte Carlo: Produção Agregada (100 simulações)",
     xaxis_title="Tempo (t)",
-    yaxis_title="Log (Y)"
+    yaxis_title="Log (Y)",
+    yaxis=log_axis_config,
+    template="plotly_white"
 )
 fig.show()
 
@@ -943,26 +955,42 @@ sigma_bd = np.std(bd_data)
 x_values = np.linspace(0, 10, 100) 
 prob_y = []
 
+
 for x in x_values:
     threshold = x * sigma_bd
     count_extremes = np.sum(bd_prime > threshold)
     probability = count_extremes / len(bd_prime)
     prob_y.append(probability)
 
+x_values = np.array(x_values)
+prob_y = np.array(prob_y)
+mask = np.array(prob_y) > 0
+
+x_plot = x_values[mask]
+y_plot = prob_y[mask]
+
 fig4 = go.Figure()
 
 fig4.add_trace(go.Scatter(
-    x=x_values,
-    y=prob_y,
+    x=x_plot,
+    y=y_plot,
     mode='markers',
     name='Prob(BD\' > xσ)'
+    #marker=dict(size=8, color='blue')
 ))
 
 fig4.update_layout(
     title="Figura 4: Agregado de má dívida - Probabilidade de Eventos Extremos",
     xaxis_title="x (Múltiplos do Desvio Padrão)",
     yaxis_title="log(Probabilidade)",
-    yaxis_type="log"
+
+    yaxis=dict(
+        type='log',
+        dtick=1,
+        exponentformat='power',
+        showexponent='all'),
+
+    template='plotly_white'
 )
 
 fig4.show()
