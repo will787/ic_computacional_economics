@@ -10,9 +10,9 @@ import networkx as nx
 # ============================================================
 
 class Params:
-    N_d = 500 # downstream - i
-    N_u = 250 # upstream - j
-    N_z = 100 # bancos
+    N_d = np.random.random_integers(50, 500)# downstream - i #param fixos = 500
+    N_u = np.random.random_integers(50, 500) # upstream - j #param fixos = 250
+    N_z = np.random.random_integers(50, 500) # bancos      - z #param fixos = 100
 
     phi = 1.2
     beta = 0.8
@@ -21,7 +21,7 @@ class Params:
     gamma = 0.5
     alpha = 0.1
     sigma = 0.05
-    theta = 1
+    theta = 1.05 # risco bancario
     w = 1
     M = 5 # parametro relacao D -> U (formacao de crédito comercial e fornecimento de bens) - firmas d buscam firmas u
     N = 5 # parametro relacao D e U -> Bancos (Z) rede formacao de empréstimo bancarios
@@ -257,6 +257,7 @@ class Economy:
         self.A_u = np.ones(params.N_u)  # fornecedores começam com patrimônio líquido igual a 1
         self.A_z = np.ones(params.N_z)  # bancos começam com patrimônio líquido igual a 1
 
+        print(f"Economy initialized with {params.N_d} downstream firms, {params.N_u} upstream firms, and {params.N_z} banks.")
 
         self.history = {
             "Y": [],
@@ -908,7 +909,7 @@ fig.update_layout(
 fig.show()
 
 # model simulation - monte carlo
-results_Y, results_BD = run_monte_carlo(n_simulations=1, T=1000)
+results_Y, results_BD = run_monte_carlo(n_simulations=10, T=1000)
 
 mean_Y = np.mean(results_Y, axis=0)
 std_Y = np.std(results_Y, axis=0)
@@ -976,8 +977,8 @@ fig4.add_trace(go.Scatter(
     x=x_plot,
     y=y_plot,
     mode='markers',
-    name='Prob(BD\' > xσ)'
-    #marker=dict(size=8, color='blue')
+    name='Prob(BD\' > xσ)',
+    marker=dict(size=8, color='blue')
 ))
 
 fig4.update_layout(
