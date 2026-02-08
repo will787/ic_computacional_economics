@@ -16,3 +16,17 @@ plt.legend()
 plt.grid()
 plt.show()
 # %%
+
+plt.hist(df['Count_Def_Z'], bins=20, alpha=0.7, label='Count Def Z')
+plt.hist(df['Count_Def_U'], bins=20, alpha=0.7, label='Count Def U')
+plt.hist(df['Count_Def_D'], bins=20, alpha=0.7, label='Count Def D')
+
+plt.xlabel('Count Def')
+plt.ylabel('Frequency')
+plt.title('Distribution of Count Def')
+plt.legend()
+plt.grid()
+plt.show()
+
+
+# %%

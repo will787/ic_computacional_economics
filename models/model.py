@@ -1034,5 +1034,6 @@ if __name__ == "__main__":
     
     print("Salvando dataframe de histórico...")
     df.to_csv("simulation_history.csv", index=False)
+    print("Pronto!")
     
 # %%
