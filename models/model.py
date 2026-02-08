@@ -246,7 +246,6 @@ def pi_zt(rizt, bit, rjzt, bjt):
     return profit
 
 
-
 # ============================================================
 # ECONOMIA
 # ============================================================
@@ -749,6 +748,34 @@ class Economy:
             self.update_bank_links_u()
 
 # ============================================================
+# DATAFRAME PARA DIAGNOSTICO
+# ============================================================
+
+def history_to_dataframe(history):
+    df = pd.DataFrame({
+        "Time": np.arange(len(history["Y"])) + 1,
+        "Production": [np.sum(y) for y in history["Y"]],
+        "Revenue": [np.sum(r) for r in history["Revenue"]],
+        "Bad_Debt": history["Bad debt"],
+        
+        # Médias (usando np.mean para garantir escalar)
+        "Avg_r_bank_d": [np.mean(r) for r in history["r_bank_d"]],
+        "Avg_r_bank_u": [np.mean(r) for r in history["r_bank_u"]],
+        "Avg_r_trade_u": [np.mean(r) for r in history["r_trade_u"]],
+        "Avg_B_d": [np.mean(b) for b in history["B_d"]],
+        "Avg_B_u": [np.mean(b) for b in history["B_u"]],
+        
+        # Diagnósticos
+        "Count_Def_D": history["count_defaults_d"],
+        "Count_Def_U": history["count_defaults_u"],
+        "Count_Def_Z": history["count_defaults_z"],
+        "Avg_Leverage_D": [np.mean(l) for l in history["leverage_d"]],
+        "Avg_Leverage_U": [np.mean(l) for l in history["leverage_u"]],
+        "Q_Mismatch": history["Q_mismatch_d"]
+    })
+    return df
+
+# ============================================================
 # REDES
 # ============================================================
 
@@ -827,216 +854,185 @@ if __name__ == "__main__":
 
 # 1 model
 
-log_axis_config = dict(
-    type='log',
-    dtick=1,                # Um tick por potência de 10
-    exponentformat='power', # Formato 10^k
-    showexponent='all'      # Mostra o expoente sempre
-)
-
-
-rev_by_period = np.array(econ.history["Y"])
-agg_revenue_t = rev_by_period.sum(axis=1) #soma por periodo das firmas
-time_steps = np.arange(len(agg_revenue_t)) + 1
-data_plot = np.maximum(agg_revenue_t, 1e-12)
-
-fig = go.Figure()
-fig.add_trace(go.Scatter(
-    x=time_steps,
-    y=data_plot,
-    mode='lines'
-))
-
-fig.update_layout(
-    title="(A) - Produção Agregada (Escala Log)",
-    xaxis_title="Tempo (t)",
-    yaxis_title="Produção Agregada (Y)",
-    yaxis=log_axis_config,
-    template="plotly_white"
+    log_axis_config = dict(
+        type='log',
+        dtick=1,                # Um tick por potência de 10
+        exponentformat='power', # Formato 10^k
+        showexponent='all'      # Mostra o expoente sempre
     )
 
-fig.show()
 
-# 2 model
+    rev_by_period = np.array(econ.history["Y"])
+    agg_revenue_t = rev_by_period.sum(axis=1) #soma por periodo das firmas
+    time_steps = np.arange(len(agg_revenue_t)) + 1
+    data_plot = np.maximum(agg_revenue_t, 1e-12)
 
-A_final = np.array(econ.history["A_d"][-1])
-A_final = A_final[A_final > 0]
-if len(A_final) > 0:
-        A_sorted = np.sort(A_final)[::-1]
-        rank = np.arange(1, len(A_final) + 1)
-
-        fig2 = go.Figure()
-        fig2.add_trace(go.Scatter(x=A_sorted, y=rank, mode="markers"))
-        fig2.update_layout(
-            title="(B) Distribuição de Tamanho das Firmas (Log-Log)", 
-            xaxis_title="Patrimônio Líquido (A)",
-            yaxis_title="Rank",
-            xaxis=log_axis_config, # Log no X
-            yaxis=log_axis_config, # Log no Y
-            template="plotly_white"
-        )
-        fig2.show()
-
-
-# 3 model
-
-down_deg, up_deg = degree_distribution_new(econ.supplier, econ.params.N_d, econ.params.N_u)
-
-active_up_deg = up_deg[up_deg > 0]
-
-up_sorted = np.sort(active_up_deg)[::-1]
-rank = np.arange(1, len(active_up_deg) + 1)
-
-fig3 = go.Figure()
-fig3.add_trace(go.Scatter(
-    x=up_sorted,
-    y=rank,
-    mode="markers"
-))
-fig3.update_layout(
-    title="(c) Distribuição de Grau — Upstream (Clientes por Fornecedor)",
-    xaxis_title="log(Number of links)",
-    yaxis_title="log(rank)",
-    xaxis=log_axis_config,
-    yaxis=log_axis_config,
-    template="plotly_white"
-)
-fig3.show()
-# 4 model
-bank_deg = econ.get_bank_degrees()
-print(bank_deg)
-bank_deg = bank_deg[bank_deg > 0]
-
-deg_sorted = np.sort(bank_deg)[::-1]
-rank = np.arange(1, len(deg_sorted) + 1)
-
-fig = go.Figure()
-fig.add_trace(go.Scatter(
-    x=deg_sorted,
-    y=rank,
-    mode="markers",
-    name="Bancos"
-)) 
-
-
-fig.update_layout(
-    title="(D) - Grau de Distribuição - Banks vs (D + U clients)",
-    xaxis_title="log(Number of links)",
-    yaxis_title="log(rank)",
-    xaxis=log_axis_config,
-    yaxis=log_axis_config,
-    template="plotly_white"
-)
-fig.show()
-
-# 5 model
-
-# segundo visao, uma alternativa para bad debt (normalizado pela producao)
-Y_history = np.array(econ.history["Y"]).sum(axis=1)
-bd_series = np.array(econ.history["Bad debt"])
-normalized_bd = bd_series / np.maximum(Y_history, 1e-6)
-time_steps = np.arange(len(normalized_bd)) + 1
-
-# primeirao visao - seguindo o artigo
-bad_debt_series = np.array(econ.history["Bad debt"])
-time_steps = np.arange(len(bad_debt_series)) + 1
-
-fig = go.Figure()
-fig.add_trace(go.Scatter(
-    x=time_steps,
-    y=bad_debt_series,
-    mode="lines"
-))
-
-fig.update_layout(
-    title="Bad debt com Banks (D + U)",
-    xaxis_title="Tempo (t)",
-    yaxis_title="Bad debt",
-    template="plotly_white"
-    )
-fig.show()
-
-# model simulation - monte carlo
-results_Y, results_BD = run_monte_carlo(n_simulations=1, T=1000)
-
-mean_Y = np.mean(results_Y, axis=0)
-std_Y = np.std(results_Y, axis=0)
-
-# simulacao producao agg log
-fig = go.Figure()
-t_index = np.arange(1, 1001)
-for k in range(min(10, len(results_Y))):
+    fig = go.Figure()
     fig.add_trace(go.Scatter(
-        x=t_index, 
-        y=np.log10(np.maximum(results_Y[k, :], 1e-12)),
-        mode='lines',
-        line=dict(width=1, color='rgba(0,0,255,0.2)'),
-        showlegend=False
+        x=time_steps,
+        y=data_plot,
+        mode='lines'
     ))
 
-fig.add_trace(go.Scatter(
-    x=t_index,
-    y=np.log10(np.maximum(mean_Y, 1e-12)),
-    mode='lines',
-    name='Média (Monte Carlo)',
-    line=dict(width=4, color='red')
-))
+    fig.update_layout(
+        title="(A) - Produção Agregada (Escala Log)",
+        xaxis_title="Tempo (t)",
+        yaxis_title="Produção Agregada (Y)",
+        yaxis=log_axis_config,
+        template="plotly_white"
+        )
 
-fig.update_layout(
-    title=f"Monte Carlo: Produção Agregada (100 simulações)",
-    xaxis_title="Tempo (t)",
-    yaxis_title="Log (Y)",
-    yaxis=log_axis_config,
-    template="plotly_white"
-)
-fig.show()
+    fig.show()
+
+    # 2 model
+
+    A_final = np.array(econ.history["A_d"][-1])
+    A_final = A_final[A_final > 0]
+    if len(A_final) > 0:
+            A_sorted = np.sort(A_final)[::-1]
+            rank = np.arange(1, len(A_final) + 1)
+
+            fig2 = go.Figure()
+            fig2.add_trace(go.Scatter(x=A_sorted, y=rank, mode="markers"))
+            fig2.update_layout(
+                title="(B) Distribuição de Tamanho das Firmas (Log-Log)", 
+                xaxis_title="Patrimônio Líquido (A)",
+                yaxis_title="Rank",
+                xaxis=log_axis_config, # Log no X
+                yaxis=log_axis_config, # Log no Y
+                template="plotly_white"
+            )
+            fig2.show()
 
 
-# ============================================================
-# FIGURA 4: Probabilidade de Eventos Extremos (Avalanches)
-# ============================================================
+    # 3 model
 
-#fs.probabilities_extreme_event(bad_debt_data=results_BD) para simulacao de monte carlo, normalizacao
-fs.probabilities_extreme_event(bad_debt_data=econ.history["Bad debt"])
+    down_deg, up_deg = degree_distribution_new(econ.supplier, econ.params.N_d, econ.params.N_u)
 
-# mecanismo de rede
+    active_up_deg = up_deg[up_deg > 0]
 
-fs.plot_network_organic(econ, num_sample_d=15, k_spacing=5.0, iterations=1000)
+    up_sorted = np.sort(active_up_deg)[::-1]
+    rank = np.arange(1, len(active_up_deg) + 1)
 
-# %%
-print("Downstream degrees:", np.unique(down_deg, return_counts=True))
-print("Upstream degrees:", np.unique(up_deg, return_counts=True))
-print("Upstream degrees:", np.unique(up_deg, return_counts=True))
-# %%
+    fig3 = go.Figure()
+    fig3.add_trace(go.Scatter(
+        x=up_sorted,
+        y=rank,
+        mode="markers"
+    ))
+    fig3.update_layout(
+        title="(c) Distribuição de Grau — Upstream (Clientes por Fornecedor)",
+        xaxis_title="log(Number of links)",
+        yaxis_title="log(rank)",
+        xaxis=log_axis_config,
+        yaxis=log_axis_config,
+        template="plotly_white"
+    )
+    fig3.show()
+    # 4 model
+    bank_deg = econ.get_bank_degrees()
+    print(bank_deg)
+    bank_deg = bank_deg[bank_deg > 0]
 
-def history_to_dataframe(history):
-    df = pd.DataFrame({
-        "Time": np.arange(len(history["Y"])) + 1,
-        "Production": [y.sum() for y in history["Y"]],
-        "Revenue": [rev.sum() for rev in history["Revenue"]],
-        "Avg_A_d": [a.mean() for a in history["A_d"]],
-        "Avg_A_u": [a.mean() for a in history["A_u"]],
-        "Bad_Debt": history["Bad debt"],
-        "Avg_Deg_Down": [deg.mean() for deg in history["deg_down"]],
-        "Avg_Deg_Up": [deg.mean() for deg in history["deg_up"]],
-        "Avg_r_bank_d": [r.mean() for r in history["r_bank_d"]],
-        "Avg_r_bank_u": [r.mean() for r in history["r_bank_u"]],
-        "Avg_r_trade_u": [r.mean() for r in history["r_trade_u"]],
-        "Avg_B_d": [B.mean() for B in history["B_d"]],
-        "Avg_B_u": [B.mean() for B in history["B_u"]],
-        "Count_Def_D": history["count_defaults_d"],
-        "Count_Def_U": history["count_defaults_u"],
-        "Count_Def_Z": history["count_defaults_z"],
-        "Avg_Leverage_D": [lev.mean() for lev in history["leverage_d"]],
-        "Avg_Leverage_U": [lev.mean() for lev in history["leverage_u"]],
-        "Q_Mismatch_D": history["Q_mismatch_d"]
-    })
-    return df
+    deg_sorted = np.sort(bank_deg)[::-1]
+    rank = np.arange(1, len(deg_sorted) + 1)
 
-df = history_to_dataframe(econ.history)
-df.head()
-# %%
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=deg_sorted,
+        y=rank,
+        mode="markers",
+        name="Bancos"
+    )) 
 
-for i in range(len(df['Q_Mismatch_D'])):
-    print(f"Time {df['Time'][i]}: Q Mismatch D = {df['Q_Mismatch_D'][i]}")
+
+    fig.update_layout(
+        title="(D) - Grau de Distribuição - Banks vs (D + U clients)",
+        xaxis_title="log(Number of links)",
+        yaxis_title="log(rank)",
+        xaxis=log_axis_config,
+        yaxis=log_axis_config,
+        template="plotly_white"
+    )
+    fig.show()
+
+    # 5 model
+
+    # segundo visao, uma alternativa para bad debt (normalizado pela producao)
+    Y_history = np.array(econ.history["Y"]).sum(axis=1)
+    bd_series = np.array(econ.history["Bad debt"])
+    normalized_bd = bd_series / np.maximum(Y_history, 1e-6)
+    time_steps = np.arange(len(normalized_bd)) + 1
+
+    # primeirao visao - seguindo o artigo
+    bad_debt_series = np.array(econ.history["Bad debt"])
+    time_steps = np.arange(len(bad_debt_series)) + 1
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=time_steps,
+        y=bad_debt_series,
+        mode="lines"
+    ))
+
+    fig.update_layout(
+        title="Bad debt com Banks (D + U)",
+        xaxis_title="Tempo (t)",
+        yaxis_title="Bad debt",
+        template="plotly_white"
+        )
+    fig.show()
+
+    # model simulation - monte carlo
+    results_Y, results_BD = run_monte_carlo(n_simulations=1, T=1000)
+
+    mean_Y = np.mean(results_Y, axis=0)
+    std_Y = np.std(results_Y, axis=0)
+
+    # simulacao producao agg log
+    fig = go.Figure()
+    t_index = np.arange(1, 1001)
+    for k in range(min(10, len(results_Y))):
+        fig.add_trace(go.Scatter(
+            x=t_index, 
+            y=np.log10(np.maximum(results_Y[k, :], 1e-12)),
+            mode='lines',
+            line=dict(width=1, color='rgba(0,0,255,0.2)'),
+            showlegend=False
+        ))
+
+    fig.add_trace(go.Scatter(
+        x=t_index,
+        y=np.log10(np.maximum(mean_Y, 1e-12)),
+        mode='lines',
+        name='Média (Monte Carlo)',
+        line=dict(width=4, color='red')
+    ))
+
+    fig.update_layout(
+        title=f"Monte Carlo: Produção Agregada (100 simulações)",
+        xaxis_title="Tempo (t)",
+        yaxis_title="Log (Y)",
+        yaxis=log_axis_config,
+        template="plotly_white"
+    )
+    fig.show()
+
+
+    # ============================================================
+    # FIGURA 4: Probabilidade de Eventos Extremos (Avalanches)
+    # ============================================================
+
+    #fs.probabilities_extreme_event(bad_debt_data=results_BD) para simulacao de monte carlo, normalizacao
+    fs.probabilities_extreme_event(bad_debt_data=econ.history["Bad debt"])
+
+    # mecanismo de rede
+    fs.plot_network_organic(econ, num_sample_d=15, k_spacing=5.0, iterations=1000)
+
+    # dataframe da janela de rodada do modelo
+    df = history_to_dataframe(econ.history)
+    
+    print("Salvando dataframe de histórico...")
+    df.to_csv("simulation_history.csv", index=False)
+    
 # %%
