@@ -27,7 +27,7 @@ class Params:
     gamma = 0.5
     alpha = 0.1
     sigma = 0.05
-    theta = 1.05 # risco bancario
+    theta = 0.10 # risco bancario
     w = 1
     M = 5 # parametro relacao D -> U (formacao de crédito comercial e fornecimento de bens) - firmas d buscam firmas u
     N = 5 # parametro relacao D e U -> Bancos (Z) rede formacao de empréstimo bancarios
@@ -771,7 +771,7 @@ def history_to_dataframe(history):
         "Count_Def_Z": history["count_defaults_z"],
         "Avg_Leverage_D": [np.mean(l) for l in history["leverage_d"]],
         "Avg_Leverage_U": [np.mean(l) for l in history["leverage_u"]],
-        "Q_Mismatch": history["Q_mismatch_d"]
+        "Q_mismatch_d": history["Q_mismatch_d"]
     })
     return df
 
@@ -984,7 +984,7 @@ if __name__ == "__main__":
     fig.show()
 
     # model simulation - monte carlo
-    results_Y, results_BD = run_monte_carlo(n_simulations=1, T=1000)
+    results_Y, results_BD = run_monte_carlo(n_simulations=10, T=1000)
 
     mean_Y = np.mean(results_Y, axis=0)
     std_Y = np.std(results_Y, axis=0)
