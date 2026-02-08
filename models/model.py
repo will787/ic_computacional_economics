@@ -271,10 +271,25 @@ class Economy:
             "Revenue": [],
             "A_d": [],
             "A_u": [],
+            "A_z": [], #new
             "profits_d": [],
             "Bad debt": [],
             "deg_down": [],
-            "deg_up": []
+            "deg_up": [],
+
+            # new variables to track
+            "r_bank_d": [],
+            "r_bank_u": [],
+            "r_trade_u": [],
+            "B_d": [],
+            "B_u": [],
+
+            "leverage_d": [],
+            "leverage_u": [],
+            "count_defaults_d": [], #falencias downstream
+            "count_defaults_u": [],
+            "count_defaults_z": [],
+            "Q_mismatch_d": [], #diff entre (oferta e demanda)
         }
 
     def step_production(self):
@@ -538,7 +553,7 @@ class Economy:
         defaults_z = np.where(self.A_z < 0)[0]
         self.A_z[defaults_z] = np.random.uniform(0.8, 1.2, len(defaults_z))
         
-        return total_bad_debt
+        return total_bad_debt, len(defaults_d), len(defaults_u), len(defaults_z)
 
     def update_supplier_links(self):
         p = self.params
@@ -671,6 +686,17 @@ class Economy:
                 N_u_demand=N_u_demand
             )
 
+            # para diagnostico - Leverage = Divida / Ativo
+            lev_d_vec = B_d / np.maximum(self.A_d, 1e-6)
+            lev_u_vec = B_u / np.maximum(self.A_u, 1e-6)
+
+            # mismatatch - diferenca de oferta e demanda
+            # se for > 0: excesso de producao (U gasto salario atoas vezes)
+            total_Q_supply = Q_d_demand.sum()
+            total_Q_demand = Q_u_production.sum()
+            mismatch = total_Q_supply - total_Q_demand
+
+
             A_d_new, A_u_new, cost_trade_d = self.step_profits_and_dynamics(
                 Y_d=Y_d,
                 revenue_d=revenue_d,
@@ -686,8 +712,10 @@ class Economy:
             )
 
 
-            bd = self.propagate_bad_debt(A_d_new, A_u_new, B_d, cost_trade_d, B_u)
+            bd, num_def_d, num_def_u, num_def_z = self.propagate_bad_debt(A_d_new, A_u_new, B_d, cost_trade_d, B_u)
             
+            r_trade_u = rjt(self.A_u, self.params.alpha)
+
             #como o mercado se organiza
             down_deg, up_deg = degree_distribution_new(self.supplier, self.params.N_d, self.params.N_u)
             
@@ -701,6 +729,19 @@ class Economy:
             self.history["deg_down"].append(down_deg)
             self.history["deg_up"].append(up_deg)
             self.history["Bad debt"].append(bd)
+
+            #novas variaveis
+            self.history["r_bank_d"].append(r_b_d)
+            self.history["r_bank_u"].append(r_b_u)
+            self.history["r_trade_u"].append(r_trade_u)
+            self.history["B_d"].append(B_d)
+            self.history["B_u"].append(B_u)
+            self.history["count_defaults_d"].append(num_def_d)
+            self.history["count_defaults_u"].append(num_def_u)
+            self.history["count_defaults_z"].append(num_def_z)
+            self.history["Q_mismatch_d"].append(mismatch)
+            self.history["leverage_d"].append(lev_d_vec)
+            self.history["leverage_u"].append(lev_u_vec)
 
             # atualizacao da rede
             self.update_supplier_links()
@@ -908,7 +949,7 @@ fig.add_trace(go.Scatter(
 ))
 
 fig.update_layout(
-    title="Bad debt with Banks (D + U)",
+    title="Bad debt com Banks (D + U)",
     xaxis_title="Tempo (t)",
     yaxis_title="Bad debt",
     template="plotly_white"
@@ -916,7 +957,7 @@ fig.update_layout(
 fig.show()
 
 # model simulation - monte carlo
-results_Y, results_BD = run_monte_carlo(n_simulations=10, T=1000)
+results_Y, results_BD = run_monte_carlo(n_simulations=1, T=1000)
 
 mean_Y = np.mean(results_Y, axis=0)
 std_Y = np.std(results_Y, axis=0)
@@ -956,14 +997,46 @@ fig.show()
 # ============================================================
 
 #fs.probabilities_extreme_event(bad_debt_data=results_BD) para simulacao de monte carlo, normalizacao
-fs.probabilities_extreme_event(bad_debt_data=results_BD, normalize_by_production=True)
+fs.probabilities_extreme_event(bad_debt_data=econ.history["Bad debt"])
 
 # mecanismo de rede
 
-fs.plot_network_organic(econ, num_sample_d=50, k_spacing=5.0, iterations=1000)
+fs.plot_network_organic(econ, num_sample_d=15, k_spacing=5.0, iterations=1000)
 
 # %%
 print("Downstream degrees:", np.unique(down_deg, return_counts=True))
 print("Upstream degrees:", np.unique(up_deg, return_counts=True))
 print("Upstream degrees:", np.unique(up_deg, return_counts=True))
+# %%
+
+def history_to_dataframe(history):
+    df = pd.DataFrame({
+        "Time": np.arange(len(history["Y"])) + 1,
+        "Production": [y.sum() for y in history["Y"]],
+        "Revenue": [rev.sum() for rev in history["Revenue"]],
+        "Avg_A_d": [a.mean() for a in history["A_d"]],
+        "Avg_A_u": [a.mean() for a in history["A_u"]],
+        "Bad_Debt": history["Bad debt"],
+        "Avg_Deg_Down": [deg.mean() for deg in history["deg_down"]],
+        "Avg_Deg_Up": [deg.mean() for deg in history["deg_up"]],
+        "Avg_r_bank_d": [r.mean() for r in history["r_bank_d"]],
+        "Avg_r_bank_u": [r.mean() for r in history["r_bank_u"]],
+        "Avg_r_trade_u": [r.mean() for r in history["r_trade_u"]],
+        "Avg_B_d": [B.mean() for B in history["B_d"]],
+        "Avg_B_u": [B.mean() for B in history["B_u"]],
+        "Count_Def_D": history["count_defaults_d"],
+        "Count_Def_U": history["count_defaults_u"],
+        "Count_Def_Z": history["count_defaults_z"],
+        "Avg_Leverage_D": [lev.mean() for lev in history["leverage_d"]],
+        "Avg_Leverage_U": [lev.mean() for lev in history["leverage_u"]],
+        "Q_Mismatch_D": history["Q_mismatch_d"]
+    })
+    return df
+
+df = history_to_dataframe(econ.history)
+df.head()
+# %%
+
+for i in range(len(df['Q_Mismatch_D'])):
+    print(f"Time {df['Time'][i]}: Q Mismatch D = {df['Q_Mismatch_D'][i]}")
 # %%
