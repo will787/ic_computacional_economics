@@ -1,4 +1,11 @@
 # %%
+import sys
+import subprocess
+
+# Isso força a instalação do seaborn no exato Python que está rodando esta janela
+subprocess.check_call([sys.executable, "-m", "pip", "install", "seaborn"])
+print("Seaborn instalado com sucesso no ambiente atual!")
+# %%
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
@@ -12,6 +19,7 @@ df.head()
 plt.figure(figsize=(10, 6))
 plt.plot(df['Time'], df['Count_Def_D'], label='Count Def D')
 plt.plot(df['Time'], df['Count_Def_U'], label='Count Def U')
+plt.plot(df['Time'], df['Count_Def_Z'], label='Count Def Z')
 plt.plot
 plt.xlabel('Time')
 plt.ylabel('Count Def')
@@ -143,7 +151,7 @@ def plot_figura_6_rank(df):
     fig6.add_trace(go.Scatter(
         x=l_data, y=l_rank,
         mode='markers',
-        marker=dict(size=4, color='blue'),
+        marker=dict(size=4, color='red'),
         name='Crescimento Negativo'
     ))
     
@@ -152,8 +160,7 @@ def plot_figura_6_rank(df):
         x=r_data, y=r_rank,
         mode='markers',
         marker=dict(size=4, color='blue'), # Mesma cor para parecer uma curva só
-        name='Crescimento Positivo',
-        showlegend=False
+        name='Crescimento Positivo'
     ))
 
     fig6.update_layout(
@@ -171,4 +178,200 @@ def plot_figura_6_rank(df):
 
 get_rank_tent_shape(df["Production"].values)
 plot_figura_6_rank(df)
+# %%
+
+
+df.columns
+# %%
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+
+def plot_diagnosticos_avancados(df):
+    
+    # ==============================================================================
+    # 1. CICLO DA FRAGILIDADE: Alavancagem (D/U) vs Bad Debt
+    # ==============================================================================
+    fig1 = make_subplots(specs=[[{"secondary_y": True}]])
+
+    # Área de Bad Debt (Fundo)
+    fig1.add_trace(
+        go.Bar(x=df["Time"], y=df["Bad_Debt"], name="Bad Debt (Crises)", 
+               marker_color="lightgrey", opacity=0.5),
+        secondary_y=False
+    )
+
+    # Linhas de Alavancagem
+    fig1.add_trace(
+        go.Scatter(x=df["Time"], y=df["Avg_Leverage_D"], name="Alavancagem Média (D)", 
+                   line=dict(color="blue", width=2)),
+        secondary_y=True
+    )
+    fig1.add_trace(
+        go.Scatter(x=df["Time"], y=df["Avg_Leverage_U"], name="Alavancagem Média (U)", 
+                   line=dict(color="green", width=2, dash="dot")),
+        secondary_y=True
+    )
+
+    fig1.update_layout(
+        title="Ciclo da Fragilidade: Alavancagem vs. Avalanches de Bad Debt",
+        template="plotly_white",
+        hovermode="x unified"
+    )
+    fig1.update_yaxes(title_text="Volume de Bad Debt", secondary_y=False)
+    fig1.update_yaxes(title_text="Índice de Alavancagem (L)", secondary_y=True)
+    fig1.show()
+
+    # ==============================================================================
+    # 2. TRANSMISSÃO DE JUROS: Bancos vs Crédito Comercial
+    # ==============================================================================
+    fig2 = go.Figure()
+
+    fig2.add_trace(go.Scatter(x=df["Time"], y=df["Avg_r_bank_u"], name="Custo Banco (U)",
+                             line=dict(color="firebrick", width=1.5)))
+    
+    fig2.add_trace(go.Scatter(x=df["Time"], y=df["Avg_r_trade_u"], name="Custo Comercial (Trade Credit)",
+                             line=dict(color="forestgreen", width=1.5)))
+    
+    # Diferença (Spread) preenchida
+    fig2.add_trace(go.Scatter(
+        x=df["Time"], y=df["Avg_r_trade_u"],
+        fill='tonexty', # Preenche até a linha anterior (Avg_r_bank_u)
+        fillcolor='rgba(0, 255, 0, 0.1)',
+        line=dict(width=0),
+        showlegend=False,
+        name="Spread"
+    ))
+
+    fig2.update_layout(
+        title="Transmissão Financeira:Spread entre Custo Bancário e Crédito Comercial",
+        yaxis_title="Taxa de Juros (r)",
+        xaxis_title="Tempo",
+        template="plotly_white"
+    )
+    fig2.show()
+
+    # ==============================================================================
+    # 3. DIAGRAMA DE FASE: Produção vs Juros (Acelerador Financeiro)
+    # ==============================================================================
+    tail = 100
+    df_tail = df.tail(tail)
+
+    fig3 = go.Figure()
+
+    fig3.add_trace(go.Scatter(
+        x=df_tail["Production"], 
+        y=df_tail["Avg_r_bank_d"],
+        mode='markers+lines',
+        marker=dict(
+            size=6,
+            color=df_tail["Time"], # Cor evolui com o tempo
+            colorscale="Viridis",
+            showscale=True,
+            colorbar=dict(title="Tempo")
+        ),
+        line=dict(color='gray', width=0.5, dash='dot'),
+        name="Trajetória"
+    ))
+
+    fig3.update_layout(
+        title=f"Diagrama de Fase (Últimos {tail} períodos): Produção vs Custo do Crédito",
+        xaxis_title="Produção Agregada (Y)",
+        yaxis_title="Taxa de Juros Média (Downstream)",
+        template="plotly_white",
+        height=600
+    )
+    fig3.show()
+
+# Executar
+if 'df' in locals():
+    plot_diagnosticos_avancados(df)
+# %%
+# %% Visão 1: A Marcha das Taxas de Juros (Feedback Loop Financeiro)
+from plotly.subplots import make_subplots
+
+# Criando figura com dois eixos Y
+fig1 = make_subplots(specs=[[{"secondary_y": True}]])
+
+# Eixo Secundário (Barras no fundo): O Choque (Má Dívida)
+fig1.add_trace(go.Bar(
+    x=df['Time'], y=df['Bad_Debt'], 
+    name='Bad Debt (Calotes)', 
+    marker_color='rgba(255, 0, 0, 0.3)' # Vermelho transparente
+), secondary_y=True)
+
+# Eixo Primário (Linhas na frente): A Reação (Taxas de Juros)
+fig1.add_trace(go.Scatter(
+    x=df['Time'], y=df['Avg_r_trade_u'], 
+    mode='lines', name='Juros Comercial (U -> D)', line=dict(color='orange')
+), secondary_y=False)
+
+fig1.add_trace(go.Scatter(
+    x=df['Time'], y=df['Avg_r_bank_u'], 
+    mode='lines', name='Juros Banco -> U', line=dict(color='blue')
+), secondary_y=False)
+
+fig1.update_layout(
+    title='Visão 1: O Ciclo Vicioso dos Juros (Contágio)',
+    xaxis_title='Tempo (t)',
+    yaxis_title='Taxa de Juros (r)',
+    yaxis2_title='Volume de Má Dívida (Bad Debt)',
+    template='plotly_white'
+)
+fig1.show()
+# %%
+# %% Visão 2: Dinâmica de Alavancagem (Deleveraging Cycle)
+fig2 = go.Figure()
+
+fig2.add_trace(go.Scatter(
+    x=df['Time'], y=df['Avg_Leverage_D'], 
+    mode='lines', name='Alavancagem Média D (Dívida/Patrimônio)'
+))
+
+fig2.add_trace(go.Scatter(
+    x=df['Time'], y=df['Avg_Leverage_U'], 
+    mode='lines', name='Alavancagem Média U'
+))
+
+# Adicionando um sombreamento onde houve picos de falência (opcional, visual)
+avalanche_threshold = df['Count_Def_D'].mean() + 2 * df['Count_Def_D'].std()
+for i, row in df.iterrows():
+    if row['Count_Def_D'] > avalanche_threshold:
+        fig2.add_vrect(
+            x0=row['Time']-0.5, x1=row['Time']+0.5, 
+            fillcolor="red", opacity=0.1, line_width=0
+        )
+
+fig2.update_layout(
+    title='Visão 2: Ciclos de Alavancagem (Áreas vermelhas = Avalanches em D)',
+    xaxis_title='Tempo (t)',
+    yaxis_title='Índice de Alavancagem (l)',
+    template='plotly_white'
+)
+fig2.show()
+# %%
+# %% Visão 3: Correlação Sistêmica (Heatmap)
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+# Selecionar variáveis chave para a macroeconomia do modelo
+cols_macro = [
+    'Production', 'Bad_Debt', 'Avg_r_bank_d', 'Avg_r_trade_u', 
+    'Avg_Leverage_D', 'Avg_Leverage_U', 'Count_Def_D', 'Count_Def_U'
+]
+df_macro = df[cols_macro]
+
+# Renomear para ficar bonito no gráfico
+df_macro.columns = [
+    'Produção', 'Má Dívida', 'Juros B->D', 'Juros U->D', 
+    'Alavancagem D', 'Alavancagem U', 'Falências D', 'Falências U'
+]
+
+plt.figure(figsize=(8, 6))
+corr = df_macro.corr()
+
+# Plotar o heatmap
+sns.heatmap(corr, annot=True, cmap='coolwarm', vmin=-1, vmax=1, fmt=".2f", linewidths=.5)
+plt.title('Visão 3: Matriz de Correlação Macroeconômica')
+plt.tight_layout()
+plt.show()
 # %%

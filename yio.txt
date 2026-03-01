@@ -1,0 +1,21 @@
+O modelo original de deli gati consistia em uma modelagem estatítica.
+    - uma rede que não evolui ao longo do tempo
+    - uma rede que é formada por familias, firmas e bancos. 
+    - relações de crédito que conectam as firmas (credito comercial)
+    - relações de crédito que conectam bancos e firmas (crédito bancário)
+    - Estrutura não muda ao longo do tempo
+
+Iniciativa, de um algoritmo do partner prefer:
+    - Mecanismo para evolução endongena da estrutura da rede, a regra da escolha do parceiro preferido.
+    - Em todo período o consumidor busca pelo pelo mínimos dos preços cobrados por um conjunto selecionado aleatoriamente.
+    - Ele sempre muda se achar um preço mais acessível do que era antes, um preço melhor.
+    - O modelo afirma que tudo que é feito é consumido.
+
+
+Partner prefer é o parceiro preferido que ele escolhe:
+    - O banco também pode ligar escolhendo quem ele vai escolher.
+    - A visão do banco se ele vai ceder mais crédito ou não.
+    - Como funciona para ele seder mais crédito dado a taxa de juros. 
+
+Estudar entender;
+    - emprestador no mundo de Bernanke e Gertler
