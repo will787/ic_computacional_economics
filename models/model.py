@@ -32,7 +32,7 @@ class Params:
     M = 5 # parametro relacao D -> U (formacao de crédito comercial e fornecimento de bens) - firmas d buscam firmas u
     N = 5 # parametro relacao D e U -> Bancos (Z) rede formacao de empréstimo bancarios
     Z = 5 #banco por firma
-    e = 0.01 #ruido certo 0.01
+    e = 0.05 #ruido certo 0.01
     #p_jt = 0.4
     #r_b = 0.02
     # entender qual metrica faz os bancos quebraram
@@ -717,7 +717,7 @@ if __name__ == "__main__":
         for _ in range(p.N_d)
     ]
     
-    # Banks -> Downstream
+    # Banks -> Upstream
     banks_links_u = [
         [np.random.randint(0, p.N_z)]
         for _ in range(p.N_u)
@@ -947,7 +947,7 @@ if __name__ == "__main__":
     fs.probabilities_extreme_event(bad_debt_data=econ.history["Bad debt"])
 
     # mecanismo de rede
-    fs.plot_network_organic(econ, num_sample_d=50, k_spacing=5.0, iterations=1000)
+    fs.plot_network_organic(econ, num_sample_d=500, k_spacing=5.0, iterations=1000)
 
     # dataframe da janela de rodada do modelo
     df = history_to_dataframe(econ.history)
@@ -957,7 +957,8 @@ if __name__ == "__main__":
     print("Pronto!")
     
 # %%
-
 #quanto maior o ruido mais aleatoria a rede se forma, mais distribuida e cria menos monopolios
 
 #entender se o algoritmo de bad debt está errado.
+
+# %%

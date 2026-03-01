@@ -11,6 +11,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import plotly.graph_objects as go
 from scipy import stats
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 df = pd.read_csv("simulation_history.csv")
 df.head()
@@ -183,8 +185,6 @@ plot_figura_6_rank(df)
 
 df.columns
 # %%
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 
 def plot_diagnosticos_avancados(df):
     
@@ -296,7 +296,7 @@ fig1 = make_subplots(specs=[[{"secondary_y": True}]])
 fig1.add_trace(go.Bar(
     x=df['Time'], y=df['Bad_Debt'], 
     name='Bad Debt (Calotes)', 
-    marker_color='rgba(255, 0, 0, 0.3)' # Vermelho transparente
+    marker_color='red' # Vermelho transparente
 ), secondary_y=True)
 
 # Eixo Primário (Linhas na frente): A Reação (Taxas de Juros)
@@ -374,4 +374,91 @@ sns.heatmap(corr, annot=True, cmap='coolwarm', vmin=-1, vmax=1, fmt=".2f", linew
 plt.title('Visão 3: Matriz de Correlação Macroeconômica')
 plt.tight_layout()
 plt.show()
+# %%
+def plot_diagrama_fase_animado(df, tail=200):
+    df_tail = df.tail(tail).copy()
+    
+    # 1. Definir limites fixos para os eixos não "pularem" durante a animação
+    x_min = df_tail["Production"].min() * 0.95
+    x_max = df_tail["Production"].max() * 1.05
+    y_min = df_tail["Avg_r_bank_d"].min() * 0.95
+    y_max = df_tail["Avg_r_bank_d"].max() * 1.05
+    
+    # Limites da escala de cores (Tempo)
+    c_min = df_tail["Time"].min()
+    c_max = df_tail["Time"].max()
+
+    # 2. Construir os Quadros (Frames) da animação
+    frames = []
+    for i in range(1, len(df_tail) + 1):
+        # Pega os dados do início da cauda até o período atual 'i'
+        df_frame = df_tail.iloc[:i]
+        
+        frames.append(go.Frame(
+            data=[go.Scatter(
+                x=df_frame["Production"],
+                y=df_frame["Avg_r_bank_d"],
+                mode='markers+lines',
+                marker=dict(
+                    size=6,
+                    color=df_frame["Time"],
+                    colorscale="Viridis",
+                    cmin=c_min, # Trava a cor para não mudar no meio do caminho
+                    cmax=c_max,
+                ),
+                line=dict(color='gray', width=1, dash='dot')
+            )],
+            name=str(df_frame["Time"].iloc[-1]) # O nome do frame é o tempo atual
+        ))
+
+    # 3. Criar a Figura Base (Estado inicial)
+    fig3 = go.Figure(
+        data=[go.Scatter(
+            x=[df_tail["Production"].iloc[0]], 
+            y=[df_tail["Avg_r_bank_d"].iloc[0]],
+            mode='markers+lines',
+            marker=dict(
+                size=6,
+                color=[df_tail["Time"].iloc[0]],
+                colorscale="Viridis",
+                cmin=c_min,
+                cmax=c_max,
+                showscale=True,
+                colorbar=dict(title="Tempo (t)")
+            ),
+            name="Trajetória"
+        )],
+        layout=go.Layout(
+            title=f"    Diagrama de Fase Animado (Últimos {tail} períodos)",
+            xaxis=dict(title="Produção Agregada (Y)", range=[x_min, x_max]),
+            yaxis=dict(title="Taxa de Juros Média (Downstream)", range=[y_min, y_max]),
+            template="plotly_white",
+            height=600,
+            # Adiciona os botões de Play e Pause
+            updatemenus=[dict(
+                type="buttons",
+                showactive=False,
+                y=1.16, # Posição Y dos botões
+                x=1.10, # Posição X dos botões
+                buttons=[
+                    dict(label="► Play",
+                         method="animate",
+                         args=[None, {"frame": {"duration": 200, "redraw": True}, 
+                                      "fromcurrent": True, 
+                                      "transition": {"duration": 0}}]),
+                    dict(label="❚❚ Pause",
+                         method="animate",
+                         args=[[None], {"frame": {"duration": 0, "redraw": False}, 
+                                        "mode": "immediate", 
+                                        "transition": {"duration": 0}}])
+                ]
+            )]
+        ),
+        frames=frames
+    )
+
+    fig3.show()
+
+# Para testar:
+plot_diagrama_fase_animado(df)
 # %%

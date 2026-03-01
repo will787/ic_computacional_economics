@@ -5,3 +5,4 @@ sympy
 nbformat >= 4.2.0
 networkx
 seaborn
+python-bcb
