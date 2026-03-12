@@ -25,14 +25,15 @@ class Params:
     delta_d = 0.5
     delta_u = 1
     gamma = 0.5
-    alpha = 0.1
-    sigma = 0.10
-    theta = 0.10
+    alpha = 0.2 # contagio
+    sigma = 0.05
+    theta = 0.15
     w = 1
     M = 5 # parametro relacao D -> U (formacao de crédito comercial e fornecimento de bens) - firmas d buscam firmas u
     N = 5 # parametro relacao D e U -> Bancos (Z) rede formacao de empréstimo bancarios
-    Z = 5 #banco por firma
-    e = 0.05 #ruido certo 0.01
+    #Z = 5 #banco por firma
+    e = 0.10 #ruido certo 0.01
+    dy = 0.60 #metrica nova de dividendos
     #p_jt = 0.4
     #r_b = 0.02
     # entender qual metrica faz os bancos quebraram
@@ -78,15 +79,6 @@ def Nit(Y_it, delta_d):
         N_it = δ_d * Y_it
     """
     return delta_d * Y_it
-
-
-def Leontief(gamma, delta_d, Nit, Q_supply):
-    """
-        Y_it_eff = min(N_it / δ_d, Q_it / γ)
-    """
-    Y_labor = Nit / delta_d
-    Y_intermediate = Q_supply / gamma
-    return np.minimum(Y_labor, Y_intermediate)
 
 # ============================================================
 # PRODUÇÃO UPSTREAM - BENS INTERMEDIÁRIOS (fornecedores para downstream)
@@ -182,28 +174,6 @@ def pjt(At, Alpha):
         return 1 + (rjt(At, Alpha))
     return 0
 
-# ============================================================
-# LUCROS
-# ============================================================
-
-def pi_jt(p_jt_list, Qjt_list,  rjzt_list, Bjt_list, Qit_list, rj_list):
-    profits = []
-    for p_jt, Qjt, rjzt, Bjt, Qi, r_jt in zip(
-        p_jt_list, Qjt_list, rjzt_list, Bjt_list, Qit_list, rj_list
-    ):
-        profit = p_jt * Qjt - (1 + rjzt_list) * Bjt - (1 + rj_list) * Qi
-        profits.append(profit)
-    return np.array(profits)
-
-
-def pi_jt(rjt, Qjt, rjzt):
-    profit = (1 + rjt) * Qjt - (1 + rjzt) * Qjt
-    return profit
-
-def pi_zt(rizt, bit, rjzt, bjt):
-    profit = (1 + rizt) * bit - (1 + rjzt) * bjt
-    return profit
-
 
 # ============================================================
 # ECONOMIA
@@ -232,6 +202,8 @@ class Economy:
             "A_z": [], #new
             "profits_d": [],
             "Bad debt": [],
+            "debt_u": [],
+            "debt_z": [],
             "deg_down": [],
             "deg_up": [],
 
@@ -386,16 +358,27 @@ class Economy:
                 z_idx = self.bank_links_u[j][0]
                 profits_z[z_idx] += r_bank_u[j] * B_u[j]
         
-        self.A_z += profits_z
-
+        #implentacao de dividendos no modelo
+        dy_distribution = 0.0
+        for z in range(p.N_z):
+            if profits_z[z] > 0:
+                self.A_z[z] += profits_z[z] * (1 - p.dy)  # reinvestir parte dos lucros
+            else:
+                self.A_z[z] += profits_z[z]
+        
+        #self.A_z[z] += profits_z[z] descomentar se tirar o dividend yeld
         return A_d_pre_default, A_u_pre_default, cost_trade_d
 
 
     def propagate_bad_debt(self, A_d_new, A_u_new, B_d, costs_trade_d, B_u):
         p = self.params
-        
-        total_bad_debt = 0.0
-        gross_bad_debt = 0.0
+
+        bad_debt_d_to_z = 0.0
+        bad_debt_d_to_u = 0.0
+        bad_debt_u_to_z = 0.0
+
+        face_debt_d = 0.0
+        face_debt_u = 0.0
         
         # Vetores de perda para U e Z
         loss_to_u = np.zeros(p.N_u)
@@ -405,24 +388,33 @@ class Economy:
         for i in defaults_d:
             bad_debt_val = abs(A_d_new[i])
             
-            # Quem leva o calote? Fornecedor U e Banco Z
-            u_idx = self.supplier[i] #conexao D -> U
-            z_idx = self.bank_links_d[i] #conexao Z -> U ou D
+            # Quem leva o calote? (CORREÇÃO 1 e 2: Faltava o [0])
+            u_idx = self.supplier[i][0] 
             
-            # Proporção da dívida
-            debt_u = costs_trade_d[i]
-            debt_z = B_d[i] # Simplificando: o calote é no principal+juros, mas usamos exposição nominal
+            # Prevenção caso a firma por algum motivo não tenha banco
+            if len(self.bank_links_d[i]) > 0:
+                z_idx = self.bank_links_d[i][0]
+            else:
+                z_idx = np.random.randint(0, p.N_z) 
+
+
+            debt_u_i = costs_trade_d[i]
+            debt_z_i = B_d[i] 
+
+            bad_debt_d_to_u += debt_u_i
+            bad_debt_d_to_z += debt_z_i
             
+            total_liabilities = debt_u_i + debt_z_i
             
-            gross_bad_debt += (debt_u + debt_z)
-            total_liabilities = debt_u + debt_z
-            
+            # CORREÇÃO 3: Somar as liabilities (tamanho da dívida), não a variável zerada
+            face_debt_d += total_liabilities
+
             if total_liabilities > 0:
-                share_u = debt_u / total_liabilities
-                share_z = debt_z / total_liabilities
+                share_u = debt_u_i / total_liabilities
+                share_z = debt_z_i / total_liabilities
                 
-                loss_to_u[u_idx] += debt_u
-                loss_to_z[z_idx] += debt_z
+                loss_to_u[u_idx] += bad_debt_val * share_u
+                loss_to_z[z_idx] += bad_debt_val * share_z
         
         # --- Atualiza A_u com as perdas de D ---
         A_u_final = A_u_new - loss_to_u
@@ -432,39 +424,39 @@ class Economy:
         
         for j in defaults_u:
             bad_debt_val = abs(A_u_final[j])
-            total_bad_debt += bad_debt_val
+
+            debt_z_j = B_u[j]
+            bad_debt_u_to_z += debt_z_j
             
             # U deve apenas para bancos
             if len(self.bank_links_u[j]) > 0:
                 z_idx = self.bank_links_u[j][0]
                 loss_to_z[z_idx] += bad_debt_val
 
-            
-            gross_bad_debt += B_u[j]
-
         self.A_z -= loss_to_z
         
-        # --- Substituição de Agentes (Re-entry) [cite: 250, 251] ---
-        # -- Caso especifico apenas mantem a restricao, so cria nova se tiver quebra de alguma no setor.
-        # Firms falidas saem e entram novas com A ~ U(0.8, 1.2)
-        # D firms
+        # --- Substituição de Agentes (Re-entry) ---
         self.A_d = A_d_new
 
         if len(defaults_d) > 0:
             self.A_d[defaults_d] = np.random.uniform(0.2, 0.5, len(defaults_d))
         
-        # U firms
         self.A_u = A_u_final
 
         if len(defaults_u) > 0:
             self.A_u[defaults_u] = np.random.uniform(0.2, 0.5, len(defaults_u))
         
-        # Bancos (se quebrarem)
         defaults_z = np.where(self.A_z <= 0)[0]
         if len(defaults_z) > 0:
-            self.A_z[defaults_z] = np.random.uniform(0.5, 1.2, len(defaults_z))
+            self.A_z[defaults_z] = np.random.uniform(0.2, 0.5, len(defaults_z))
+
+        gross_bad_debt = bad_debt_d_to_z + bad_debt_d_to_u + bad_debt_u_to_z
+
+        total_bad_debt_d = bad_debt_d_to_u + bad_debt_d_to_z
+        total_bad_debt_u = bad_debt_u_to_z
         
-        return gross_bad_debt, len(defaults_d), len(defaults_u), len(defaults_z)
+        # CORREÇÃO 4: Retornar o gross_bad_debt como primeiro item
+        return gross_bad_debt, total_bad_debt_d, total_bad_debt_u, len(defaults_d), len(defaults_u), len(defaults_z)
 
     def update_supplier_links(self):
         p = self.params
@@ -623,7 +615,7 @@ class Economy:
             )
 
 
-            bd, num_def_d, num_def_u, num_def_z = self.propagate_bad_debt(A_d_new, A_u_new, B_d, cost_trade_d, B_u)
+            bd, debt_u, debt_z, num_def_d, num_def_u, num_def_z = self.propagate_bad_debt(A_d_new, A_u_new, B_d, cost_trade_d, B_u)
             
             r_trade_u = rjt(self.A_u, self.params.alpha)
 
@@ -636,17 +628,21 @@ class Economy:
             self.history["Revenue"].append(revenue_d.copy())
             self.history["A_d"].append(self.A_d.copy())
             self.history["A_u"].append(self.A_u.copy())
+            self.history["A_z"].append(self.A_z.copy())
+            #self.history["dy"].append()
             #self.history["profits_d"].append(profits_d)
             self.history["deg_down"].append(down_deg)
             self.history["deg_up"].append(up_deg)
             self.history["Bad debt"].append(bd)
+            self.history["debt_u"].append(debt_u)
+            self.history["debt_z"].append(debt_z)
 
             #novas variaveis
-            self.history["r_bank_d"].append(r_b_d)
-            self.history["r_bank_u"].append(r_b_u)
-            self.history["r_trade_u"].append(r_trade_u)
-            self.history["B_d"].append(B_d)
-            self.history["B_u"].append(B_u)
+            self.history["r_bank_d"].append(r_b_d) # B -> D
+            self.history["r_bank_u"].append(r_b_u) # B -> U
+            self.history["r_trade_u"].append(r_trade_u) #U -> D
+            self.history["B_d"].append(B_d) #gap financeiro downstream
+            self.history["B_u"].append(B_u) #gap financeiro upstream
             self.history["count_defaults_d"].append(num_def_d)
             self.history["count_defaults_u"].append(num_def_u)
             self.history["count_defaults_z"].append(num_def_z)
@@ -667,7 +663,8 @@ def history_to_dataframe(history):
     df = pd.DataFrame({
         "Time": np.arange(len(history["Y"])) + 1,
         "Production": [np.sum(y) for y in history["Y"]],
-        "Revenue": [np.sum(r) for r in history["Revenue"]],
+        "Avg_production": [np.median(y) for y in history["Y"]],
+        "Revenue": [np.sum(p) for p in history["Revenue"]],
         "Bad_Debt": history["Bad debt"],
         
         # Médias (usando np.mean para garantir escalar)
@@ -747,7 +744,6 @@ if __name__ == "__main__":
             econ.simulate(T=T)
             
             # 4. Extração e Tratamento de Dados
-            # Y: O history guarda um vetor de N_d firmas por tempo. Precisamos somar (Agregado).
             y_history = np.array(econ.history["Y"]) 
             # Soma axis=1 para ter o Y total da economia naquele tempo
             agg_y_t = y_history.sum(axis=1)
@@ -881,6 +877,8 @@ if __name__ == "__main__":
     # segundo visao, uma alternativa para bad debt (normalizado pela producao)
     Y_history = np.array(econ.history["Y"]).sum(axis=1)
     bd_series = np.array(econ.history["Bad debt"])
+    bd_z = np.array(econ.history["debt_z"])
+    bd_u = np.array(econ.history["debt_u"])
     normalized_bd = bd_series / np.maximum(Y_history, 1e-6)
     time_steps = np.arange(len(normalized_bd)) + 1
 
@@ -901,19 +899,41 @@ if __name__ == "__main__":
         yaxis_title="Bad debt",
         template="plotly_white"
         )
+
     fig.show()
 
+    fig2 = go.Figure()
+
+    fig2.add_trace(go.Scatter(
+        x=time_steps,
+        y=bd_z,
+        mode="lines",
+        line=dict(color="red"),
+        name="Bad debt Z"
+    ))
+    fig2.show()
+
+    fig_u = go.Figure()
+    fig_u.add_trace(go.Scatter(
+        x=time_steps,
+        y=bd_u,
+        mode="lines",
+        line=dict(color="blue"),
+        name="Bad debt U"
+    ))
+    fig_u.show()
+
     # model simulation - monte carlo
-    results_Y, results_BD = run_monte_carlo(n_simulations=10, T=1000)
+    results_Y, results_BD = run_monte_carlo(n_simulations=100, T=1000)
     
     mean_Y = np.mean(results_Y, axis=0)
     std_Y = np.std(results_Y, axis=0)
 
     # simulacao producao agg log
-    fig = go.Figure()
+    fig_mont = go.Figure()
     t_index = np.arange(1, 1001)
-    for k in range(min(10, len(results_Y))):
-        fig.add_trace(go.Scatter(
+    for k in range(min(100, len(results_Y))):
+        fig_mont.add_trace(go.Scatter(
             x=t_index, 
             y=np.log10(np.maximum(results_Y[k, :], 1e-12)),
             mode='lines',
@@ -921,7 +941,7 @@ if __name__ == "__main__":
             showlegend=False
         ))
 
-    fig.add_trace(go.Scatter(
+    fig_mont.add_trace(go.Scatter(
         x=t_index,
         y=np.log10(np.maximum(mean_Y, 1e-12)),
         mode='lines',
@@ -929,14 +949,14 @@ if __name__ == "__main__":
         line=dict(width=4, color='red')
     ))
 
-    fig.update_layout(
-        title=f"Monte Carlo: Produção Agregada (100 simulações)",
+    fig_mont.update_layout(
+        title=f"Monte Carlo: Produção Agregada ({len(results_Y)} simulações)",
         xaxis_title="Tempo (t)",
         yaxis_title="Log (Y)",
         yaxis=log_axis_config,
         template="plotly_white"
     )
-    fig.show()
+    fig_mont.show()
 
 
     # ============================================================
@@ -958,7 +978,7 @@ if __name__ == "__main__":
     
 # %%
 #quanto maior o ruido mais aleatoria a rede se forma, mais distribuida e cria menos monopolios
-
+fs.plot_network_organic(econ, num_sample_d=100, k_spacing=5.0, iterations=1000)
 #entender se o algoritmo de bad debt está errado.
 
 # %%

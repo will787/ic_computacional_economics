@@ -196,7 +196,7 @@ def plot_diagnosticos_avancados(df):
     # Área de Bad Debt (Fundo)
     fig1.add_trace(
         go.Bar(x=df["Time"], y=df["Bad_Debt"], name="Bad Debt (Crises)", 
-               marker_color="lightgrey", opacity=0.5),
+               marker_color="Red", opacity=0.5),
         secondary_y=False
     )
 
@@ -292,13 +292,6 @@ from plotly.subplots import make_subplots
 # Criando figura com dois eixos Y
 fig1 = make_subplots(specs=[[{"secondary_y": True}]])
 
-# Eixo Secundário (Barras no fundo): O Choque (Má Dívida)
-fig1.add_trace(go.Bar(
-    x=df['Time'], y=df['Bad_Debt'], 
-    name='Bad Debt (Calotes)', 
-    marker_color='red' # Vermelho transparente
-), secondary_y=True)
-
 # Eixo Primário (Linhas na frente): A Reação (Taxas de Juros)
 fig1.add_trace(go.Scatter(
     x=df['Time'], y=df['Avg_r_trade_u'], 
@@ -309,6 +302,13 @@ fig1.add_trace(go.Scatter(
     x=df['Time'], y=df['Avg_r_bank_u'], 
     mode='lines', name='Juros Banco -> U', line=dict(color='blue')
 ), secondary_y=False)
+
+# Eixo Secundário (Barras no fundo): O Choque (Má Dívida)
+fig1.add_trace(go.Bar(
+    x=df['Time'], y=df['Bad_Debt'], 
+    name='Bad Debt (Calotes)', 
+    marker_color='red' # Vermelho transparente
+), secondary_y=True)
 
 fig1.update_layout(
     title='Visão 1: O Ciclo Vicioso dos Juros (Contágio)',
@@ -356,14 +356,14 @@ import matplotlib.pyplot as plt
 # Selecionar variáveis chave para a macroeconomia do modelo
 cols_macro = [
     'Production', 'Bad_Debt', 'Avg_r_bank_d', 'Avg_r_trade_u', 
-    'Avg_Leverage_D', 'Avg_Leverage_U', 'Count_Def_D', 'Count_Def_U'
+    'Avg_Leverage_D', 'Avg_Leverage_U', 'Count_Def_D', 'Count_Def_U','Revenue'
 ]
 df_macro = df[cols_macro]
 
 # Renomear para ficar bonito no gráfico
 df_macro.columns = [
     'Produção', 'Má Dívida', 'Juros B->D', 'Juros U->D', 
-    'Alavancagem D', 'Alavancagem U', 'Falências D', 'Falências U'
+    'Alavancagem D', 'Alavancagem U', 'Falências D', 'Falências U', 'Receita'
 ]
 
 plt.figure(figsize=(8, 6))
