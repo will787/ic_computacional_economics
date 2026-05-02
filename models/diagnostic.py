@@ -226,10 +226,10 @@ def plot_diagnosticos_avancados(df):
     # ==============================================================================
     fig2 = go.Figure()
 
-    fig2.add_trace(go.Scatter(x=df["Time"], y=df["Avg_r_bank_u"], name="Custo Banco (U)",
+    fig2.add_trace(go.Scatter(x=df["Time"], y=df["Avg_r_bank_u"], name="Juros Banco (U)",
                              line=dict(color="firebrick", width=1.5)))
     
-    fig2.add_trace(go.Scatter(x=df["Time"], y=df["Avg_r_trade_u"], name="Custo Comercial (Trade Credit)",
+    fig2.add_trace(go.Scatter(x=df["Time"], y=df["Avg_r_trade_u"], name="Juros Comercial (Trade Credit)",
                              line=dict(color="forestgreen", width=1.5)))
     
     # Diferença (Spread) preenchida
@@ -300,8 +300,14 @@ fig1.add_trace(go.Scatter(
 
 fig1.add_trace(go.Scatter(
     x=df['Time'], y=df['Avg_r_bank_u'], 
-    mode='lines', name='Juros Banco -> U', line=dict(color='blue')
+    mode='lines', name='Juros Banco  (Z -> U)', line=dict(color='blue')
 ), secondary_y=False)
+
+fig1.add_trace(go.Scatter(
+    x=df['Time'], y=df['Avg_r_bank_d'], 
+    mode='lines', name='Juros Banco  (Z -> D)', line=dict(color='green')
+), secondary_y=False)
+
 
 # Eixo Secundário (Barras no fundo): O Choque (Má Dívida)
 fig1.add_trace(go.Bar(
@@ -311,7 +317,7 @@ fig1.add_trace(go.Bar(
 ), secondary_y=True)
 
 fig1.update_layout(
-    title='Visão 1: O Ciclo Vicioso dos Juros (Contágio)',
+    title='O Ciclo Vicioso dos Juros (Contágio)',
     xaxis_title='Tempo (t)',
     yaxis_title='Taxa de Juros (r)',
     yaxis2_title='Volume de Má Dívida (Bad Debt)',
@@ -329,7 +335,7 @@ fig2.add_trace(go.Scatter(
 
 fig2.add_trace(go.Scatter(
     x=df['Time'], y=df['Avg_Leverage_U'], 
-    mode='lines', name='Alavancagem Média U'
+    mode='lines', name='Alavancagem Média U (Dívida/Patrimônio)'
 ))
 
 # Adicionando um sombreamento onde houve picos de falência (opcional, visual)
@@ -355,23 +361,23 @@ import matplotlib.pyplot as plt
 
 # Selecionar variáveis chave para a macroeconomia do modelo
 cols_macro = [
-    'Production', 'Bad_Debt', 'Avg_r_bank_d', 'Avg_r_trade_u', 
+    'Production', 'Bad_Debt', 'Avg_r_bank_d', 'Avg_r_trade_u', 'Avg_r_bank_u',
     'Avg_Leverage_D', 'Avg_Leverage_U', 'Count_Def_D', 'Count_Def_U','Revenue'
 ]
 df_macro = df[cols_macro]
 
 # Renomear para ficar bonito no gráfico
 df_macro.columns = [
-    'Produção', 'Má Dívida', 'Juros B->D', 'Juros U->D', 
+    'Produção', 'Má Dívida', 'Juros B->D', 'Juros U->D',  'Juros Z->U',
     'Alavancagem D', 'Alavancagem U', 'Falências D', 'Falências U', 'Receita'
 ]
 
 plt.figure(figsize=(8, 6))
-corr = df_macro.corr()
+corr = df_macro.corr(method='spearman')
 
 # Plotar o heatmap
 sns.heatmap(corr, annot=True, cmap='coolwarm', vmin=-1, vmax=1, fmt=".2f", linewidths=.5)
-plt.title('Visão 3: Matriz de Correlação Macroeconômica')
+plt.title('Matriz de Correlação Não Linear (Spearman)')
 plt.tight_layout()
 plt.show()
 # %%
@@ -415,7 +421,7 @@ def plot_diagrama_fase_animado(df, tail=200):
     fig3 = go.Figure(
         data=[go.Scatter(
             x=[df_tail["Production"].iloc[0]], 
-            y=[df_tail["Avg_r_bank_d"].iloc[0]],
+            y=[df_tail["Avg_r_trade_u"].iloc[0]],
             mode='markers+lines',
             marker=dict(
                 size=6,

@@ -32,8 +32,8 @@ class Params:
     M = 5 # parametro relacao D -> U (formacao de crédito comercial e fornecimento de bens) - firmas d buscam firmas u
     N = 5 # parametro relacao D e U -> Bancos (Z) rede formacao de empréstimo bancarios
     #Z = 5 #banco por firma
-    e = 0.10 #ruido certo 0.01
-    dy = 0.60 #metrica nova de dividendos
+    e = 0.05 #ruido certo 0.01
+    dy = 0.80 #metrica nova de dividendos
     #p_jt = 0.4
     #r_b = 0.02
     # entender qual metrica faz os bancos quebraram
@@ -359,12 +359,12 @@ class Economy:
                 profits_z[z_idx] += r_bank_u[j] * B_u[j]
         
         #implentacao de dividendos no modelo
-        dy_distribution = 0.0
-        for z in range(p.N_z):
-            if profits_z[z] > 0:
-                self.A_z[z] += profits_z[z] * (1 - p.dy)  # reinvestir parte dos lucros
-            else:
-                self.A_z[z] += profits_z[z]
+        #dy_distribution = 0.0
+        #for z in range(p.N_z):
+        #    if profits_z[z] > 0:
+        #        self.A_z[z] += profits_z[z] * (1 - p.dy)  # reinvestir parte dos lucros
+        #    else:
+        #        self.A_z[z] += profits_z[z]
         
         #self.A_z[z] += profits_z[z] descomentar se tirar o dividend yeld
         return A_d_pre_default, A_u_pre_default, cost_trade_d
@@ -455,7 +455,6 @@ class Economy:
         total_bad_debt_d = bad_debt_d_to_u + bad_debt_d_to_z
         total_bad_debt_u = bad_debt_u_to_z
         
-        # CORREÇÃO 4: Retornar o gross_bad_debt como primeiro item
         return gross_bad_debt, total_bad_debt_d, total_bad_debt_u, len(defaults_d), len(defaults_u), len(defaults_z)
 
     def update_supplier_links(self):
@@ -902,16 +901,16 @@ if __name__ == "__main__":
 
     fig.show()
 
-    fig2 = go.Figure()
+    fig_z = go.Figure()
 
-    fig2.add_trace(go.Scatter(
+    fig_z.add_trace(go.Scatter(
         x=time_steps,
         y=bd_z,
         mode="lines",
         line=dict(color="red"),
         name="Bad debt Z"
     ))
-    fig2.show()
+    fig_z.show()
 
     fig_u = go.Figure()
     fig_u.add_trace(go.Scatter(
@@ -924,7 +923,7 @@ if __name__ == "__main__":
     fig_u.show()
 
     # model simulation - monte carlo
-    results_Y, results_BD = run_monte_carlo(n_simulations=100, T=1000)
+    results_Y, results_BD = run_monte_carlo(n_simulations=10, T=1000)
     
     mean_Y = np.mean(results_Y, axis=0)
     std_Y = np.std(results_Y, axis=0)
